@@ -2,12 +2,12 @@
 
 ## Local checks
 
-Use the [release support baseline](release-contract.md#platform-support): Ubuntu 24.04 LTS x86_64 with CPython 3.12.x. The CI checks job uses this OS and Python minor version explicitly. Passing that job covers its configured checks; real OpenPLC integration and the remaining release criteria require their own evidence.
+Use the [release support baseline](release-contract.md#platform-support): Ubuntu 24.04 LTS x86_64 with CPython 3.12.14. The CI checks job uses this OS and Python minor version explicitly. Passing that job covers its configured checks; real OpenPLC integration and the remaining release criteria require their own evidence.
 
 Install dependencies:
 
 ```bash
-uv sync --locked --python 3.12
+uv sync --locked --python 3.12.14
 ```
 
 Run the test suite:

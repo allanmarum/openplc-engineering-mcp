@@ -1,22 +1,22 @@
 # Getting started
 
-Use this document for local setup and execution only.
+Use this document for local setup and execution. For the complete pinned OpenPLC installation and repeated clean-environment check, follow [Reproducible validation environment](validation-environment.md).
 
 ## Requirements
 
-- Release support baseline: Ubuntu 24.04 LTS x86_64 and CPython 3.12.x; see the [release contract](release-contract.md#platform-support)
+- Release support baseline: Ubuntu 24.04 LTS x86_64 and CPython 3.12.14; see the [release contract](release-contract.md#platform-support)
 - [uv](https://docs.astral.sh/uv/)
 - `openplc-cli` on `PATH` when using `compile_project`
 - Node.js/npm only when using MCP Inspector through `mcp dev`
 
-The headless OpenPLC CLI used by `compile_project()` was merged into the OpenPLC Editor `development` branch on August 24, 2026 (PR #1026) and is newer than the latest published Editor release v4.2.11. See [`openplc-projects.md`](openplc-projects.md#compatibility-baseline) for the complete compatibility boundary.
+Use the exact OpenPLC source revision and CLI installation in the [validation environment](validation-environment.md). See [OpenPLC projects](openplc-projects.md#compatibility-baseline) for the compatible project representation.
 
 ## Install
 
 ```bash
 git clone https://github.com/allanmarum/openplc-engineering-mcp.git
 cd openplc-engineering-mcp
-uv sync --locked --python 3.12
+uv sync --locked --python 3.12.14
 ```
 
 ## Run the MCP server

@@ -10,12 +10,12 @@ The project uses the official Model Context Protocol Python SDK and stdio transp
 
 Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
-The release support baseline is Ubuntu 24.04 LTS x86_64 with CPython 3.12.x. The [release contract](docs/release-contract.md) freezes the thirteen-tool interface and defines the evidence required before the release can be declared complete.
+The release support baseline is Ubuntu 24.04 LTS x86_64 with CPython 3.12.14. The [release contract](docs/release-contract.md) freezes the thirteen-tool interface and defines the evidence required before the release can be declared complete.
 
 ```bash
 git clone https://github.com/allanmarum/openplc-engineering-mcp.git
 cd openplc-engineering-mcp
-uv sync --locked --python 3.12
+uv sync --locked --python 3.12.14
 uv run openplc-engineering-mcp
 ```
 
@@ -53,12 +53,9 @@ The source documentation remains in [`docs/`](docs/) and [`docs/index.md`](docs/
 
 ## Compatibility
 
-- **Full compatibility target:** the current OpenPLC Editor `development` branch after the August 24, 2026 changes that added `datatypes/*.dt` persistence and the headless CLI used by this MCP.
-- **Released versions:** no published OpenPLC Editor release currently provides the complete feature set expected by this MCP. The latest release, v4.2.11 from August 11, 2026, predates those changes.
-- **POU format boundary:** native text-based POU persistence was introduced by OpenPLC Editor PR #411 and shipped in v4.1.0. This establishes the POU-format breakline, but v4.1.0 alone is not a full MCP compatibility baseline.
-- **Backward compatibility:** intentionally not provided. Legacy JSON-centric OpenPLC project representations are out of scope.
+The frozen OpenPLC Editor/CLI revision is [`f0bb418b9c3419e573dece4222558570f6a31378`](https://github.com/Autonomy-Logic/openplc-editor/tree/f0bb418b9c3419e573dece4222558570f6a31378), source version 4.2.12. Follow the [reproducible validation recipe](docs/validation-environment.md) for its installation, exact compiler dependencies, Runtime v4 compile-only target, and two independent clean-environment checks.
 
-See [`docs/openplc-projects.md`](docs/openplc-projects.md) for the detailed compatibility boundary.
+See [OpenPLC projects](docs/openplc-projects.md) for the current-format boundary. Legacy conversion remains outside the supported scope.
 
 ## Scope
 

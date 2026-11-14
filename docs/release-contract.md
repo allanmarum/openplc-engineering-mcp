@@ -44,12 +44,12 @@ The release has one supported qualification baseline:
 | Component | Frozen baseline |
 | --- | --- |
 | Operating system | Ubuntu 24.04 LTS, x86_64 |
-| Interpreter | CPython 3.12.x |
-| Dependency installation | `uv sync --locked --python 3.12`, using the committed `uv.lock` |
+| Interpreter | CPython 3.12.14 |
+| Dependency installation | `uv sync --locked --python 3.12.14`, using the committed `uv.lock` |
 | MCP transport | Local stdio |
 | Compiler integration | Compatible local `openplc-cli` on `PATH`, with the exact OpenPLC commit, target, and toolchain recorded in release evidence |
 
-The CI checks job explicitly selects Ubuntu 24.04 and Python 3.12. Record the exact Python patch and installed dependency versions when qualifying the release. The SDK and build dependency versions are determined by the committed lockfile.
+The CI checks job explicitly selects Ubuntu 24.04, CPython 3.12.14, and uv 0.13.6. The [validation environment](validation-environment.md) fixes OpenPLC commit `f0bb418b9c3419e573dece4222558570f6a31378`, the compiler target, and verified external artifacts. Installed dependency versions are determined by the committed locks and recorded per run.
 
 `pyproject.toml` retains its Python installation minimum of `>=3.12`; that lower bound does not qualify every later interpreter. Other Python minor versions, Linux distributions or architectures, Windows, and macOS are unqualified for this contract. Installation success on one of them does not establish release support. Extending the supported baseline requires corresponding evidence and a contract revision.
 
