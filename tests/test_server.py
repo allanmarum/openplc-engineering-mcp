@@ -308,7 +308,7 @@ async def test_read_pou_returns_structured_content(client: Client, tmp_path: Pat
         json.dumps({"meta": {"name": "Minimal", "type": "plc-project"}}), encoding="utf-8"
     )
     (project / "pous" / "programs" / "main.st").write_text(
-        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8"
+        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
     )
 
     result = await client.call_tool(
@@ -362,7 +362,7 @@ async def test_update_pou_returns_structured_content(client: Client, tmp_path: P
         json.dumps({"meta": {"name": "Minimal", "type": "plc-project"}}), encoding="utf-8"
     )
     (project / "pous" / "programs" / "main.st").write_text(
-        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8"
+        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
     )
     replacement = "PROGRAM main\n    (* updated *)\nEND_PROGRAM\n"
 
@@ -393,7 +393,7 @@ async def test_update_pou_errors_are_exposed_through_mcp(client: Client, tmp_pat
         json.dumps({"meta": {"name": "Minimal", "type": "plc-project"}}), encoding="utf-8"
     )
     (project / "pous" / "programs" / "main.st").write_text(
-        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8"
+        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
     )
 
     result = await client.call_tool(

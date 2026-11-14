@@ -2,12 +2,15 @@
 
 import json
 import re
+import shutil
 import subprocess
 from typing import TypedDict
 
 from mcp.server.mcpserver.exceptions import ToolError
 
 from openplc_engineering_mcp.openplc.project import load_project
+
+_COMPILE_TIMEOUT_SECONDS = 300
 
 
 class CompileResult(TypedDict):
@@ -39,13 +42,24 @@ def compile_project(project_path: str) -> CompileResult:
     """Compile an OpenPLC project and cache stderr diagnostics for this process."""
     root, _, _ = load_project(project_path)
 
+    # Resolve through PATH extensions so Windows `.cmd` shims are executable;
+    # CreateProcess does not apply PATHEXT resolution to a bare program name.
+    executable = shutil.which("openplc-cli")
+    if executable is None:
+        raise ToolError("openplc-cli was not found on PATH")
+
     try:
         result = subprocess.run(
-            ["openplc-cli", "compile", str(root), "--json"],
+            [executable, "compile", str(root), "--json"],
             capture_output=True,
             text=True,
             check=False,
+            timeout=_COMPILE_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise ToolError(
+            f"openplc-cli compilation timed out after {_COMPILE_TIMEOUT_SECONDS} seconds"
+        ) from exc
     except FileNotFoundError as exc:
         raise ToolError("openplc-cli was not found on PATH") from exc
     except OSError as exc:
