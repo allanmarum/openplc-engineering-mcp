@@ -193,3 +193,25 @@ def test_malformed_program_instance_fields_are_rejected(
 def test_existing_project_loading_errors_are_preserved(tmp_path: Path) -> None:
     with pytest.raises(ToolError, match="does not exist"):
         get_execution_configuration(str(tmp_path / "missing"))
+
+
+def test_interrupt_task_single_signal_field_is_not_exposed(tmp_path: Path) -> None:
+    """Editor-persisted interrupt tasks carry a `single` signal; the contract ignores it."""
+    project = make_project(
+        tmp_path / "project",
+        data=resource_data(
+            tasks=[
+                {
+                    "name": "Emcy",
+                    "triggering": "Interrupt",
+                    "interval": "T#50ms",
+                    "single": "EmcySignal",
+                    "priority": 3,
+                }
+            ]
+        ),
+    )
+
+    result = get_execution_configuration(str(project))
+
+    assert result["tasks"][0] == {"name": "Emcy", "triggering": "Interrupt", "interval": None, "priority": 3}

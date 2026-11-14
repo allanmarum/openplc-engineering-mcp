@@ -155,3 +155,47 @@ def test_dt_filename_must_match_declared_name(tmp_path: Path) -> None:
 
     with pytest.raises(ToolError, match="does not match filename identity"):
         list_datatypes(str(project))
+
+
+def test_structure_supports_editor_serializer_field_forms(tmp_path: Path) -> None:
+    """Derived field types, initialized inline arrays, and single-line docs round-trip."""
+    project = make_project(tmp_path)
+    write_datatype(
+        project,
+        "BatchStatus",
+        """TYPE
+  BatchStatus : STRUCT
+    mode : MachineMode := Off;
+    temps : ARRAY [0..4, 0..2] OF REAL := [0.0];
+    note : STRING := 'ok'; (* single line doc *)
+  END_STRUCT;
+END_TYPE
+""",
+    )
+
+    assert list_datatypes(str(project)) == [
+        {
+            "name": "BatchStatus",
+            "kind": "structure",
+            "fields": [
+                {
+                    "name": "mode",
+                    "type": "MachineMode",
+                    "initial_value": "Off",
+                    "documentation": None,
+                },
+                {
+                    "name": "temps",
+                    "type": "ARRAY [0..4, 0..2] OF REAL",
+                    "initial_value": "[0.0]",
+                    "documentation": None,
+                },
+                {
+                    "name": "note",
+                    "type": "STRING",
+                    "initial_value": "'ok'",
+                    "documentation": "single line doc",
+                },
+            ],
+        }
+    ]
