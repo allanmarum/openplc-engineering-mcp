@@ -4,7 +4,7 @@ Use this document for local setup and execution only.
 
 ## Requirements
 
-- Python 3.12+
+- Release support baseline: Ubuntu 24.04 LTS x86_64 and CPython 3.12.x; see the [release contract](release-contract.md#platform-support)
 - [uv](https://docs.astral.sh/uv/)
 - `openplc-cli` on `PATH` when using `compile_project`
 - Node.js/npm only when using MCP Inspector through `mcp dev`
@@ -14,9 +14,9 @@ The headless OpenPLC CLI used by `compile_project()` was merged into the OpenPLC
 ## Install
 
 ```bash
-git clone https://github.com/industrix-com-br/openplc-engineering-mcp.git
+git clone https://github.com/allanmarum/openplc-engineering-mcp.git
 cd openplc-engineering-mcp
-uv sync
+uv sync --locked --python 3.12
 ```
 
 ## Run the MCP server

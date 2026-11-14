@@ -2,21 +2,7 @@
 
 ## Current implementation
 
-The project is an early experimental MCP server for local OpenPLC engineering operations. It currently exposes thirteen tools:
-
-- `get_project_overview` — obtain a concise engineering navigation map before detailed inspection;
-- `get_project_structure` — inspect recognized project files;
-- `list_pous` — discover Programs, Function Blocks, and Functions;
-- `list_datatypes` — inspect project-defined enumerated, structure, and array data types;
-- `get_execution_configuration` — inspect configured Tasks and Program Instances;
-- `get_io_configuration` — inspect the selected device board and its active local physical I/O mapping;
-- `read_pou` — read a POU by domain name;
-- `update_pou` — replace the complete content of an existing Structured Text POU;
-- `list_variables` — inspect variables declared by a POU;
-- `list_global_variables` — inspect the project's resource-level global variables;
-- `validate_project` — check shallow local project preconditions;
-- `compile_project` — compile through `openplc-cli`;
-- `get_diagnostics` — return `stderr` diagnostics captured from the latest compilation in the current server process.
+The project is an experimental MCP server for local OpenPLC engineering operations. Its research-release delivery scope is frozen to the thirteen tools in [release contract revision 1](release-contract.md). That contract also defines platform support and completion criteria; freezing the scope does not assert that release qualification is complete.
 
 Project, execution-configuration, physical-I/O, data-type, POU, variable, and diagnostic inspection is read-only. The only local write-capable operations are `update_pou`, which atomically replaces one existing Structured Text POU file, and compilation, which is delegated to the authoritative `openplc-cli`.
 
@@ -84,7 +70,7 @@ The current server does not provide:
 - project, execution, device, data-type, or resource-level configuration modification;
 - data-type creation, modification, deletion, or recursive resolution;
 - built-in IEC or OpenPLC library data-type discovery;
-- variable creation or modification;
+- standalone variable creation or modification tools (POU-local declarations can change through complete ST POU replacement);
 - project-wide variable or reference search;
 - vendor-specific VPP configuration inspection or reinterpretation;
 - communication configuration or protocol-specific device inspection;
@@ -99,7 +85,7 @@ The current server does not provide:
 - authentication;
 - HTTP transport.
 
-These are not all permanent exclusions. They should be added only when a concrete requirement exists and the smallest useful domain-level contract can be defined.
+These capabilities are outside the frozen research-release scope. A later scope revision may add them when a concrete requirement exists and the smallest useful domain-level contract can be defined.
 
 ## Architectural non-goals
 
@@ -114,6 +100,8 @@ The MCP should not become:
 - a framework of abstractions created only for possible future features.
 
 ## Expansion rule
+
+Changing the frozen tool set, supported project representation, or mutation boundary requires an explicit revision of the [release contract](release-contract.md). Compatible fixes and validation work within that boundary do not expand the scope.
 
 Before adding a capability, ask:
 
