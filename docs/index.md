@@ -22,6 +22,7 @@ Do not load the entire `docs/` directory by default.
 | --- | --- | --- |
 | Understand the project quickly | [`architecture.md`](architecture.md), [`scope.md`](scope.md) | `README.md` |
 | Check the frozen delivery scope, supported platform, or completion criteria | [`release-contract.md`](release-contract.md) | [`scope.md`](scope.md), [`tools.md`](tools.md), [`development.md`](development.md) |
+| Prepare or reproduce the pinned validation environment | [`validation-environment.md`](validation-environment.md) | `environment/validation.json`, `scripts/bootstrap-validation.py` |
 | Check OpenPLC version or project-format compatibility | [`openplc-projects.md`](openplc-projects.md), [`scope.md`](scope.md) | Upstream OpenPLC Editor PRs/releases when revalidating the boundary |
 | Install, run, or inspect the server | [`getting-started.md`](getting-started.md) | `pyproject.toml`, `src/openplc_engineering_mcp/server.py` |
 | Add or change an MCP tool | [`tools.md`](tools.md), [`architecture.md`](architecture.md) | `src/openplc_engineering_mcp/server.py`, relevant `src/openplc_engineering_mcp/openplc/` module, `tests/test_server.py` |
@@ -42,6 +43,10 @@ Do not load the entire `docs/` directory by default.
 ### [`getting-started.md`](getting-started.md)
 
 Load for installation, execution, MCP Inspector, and local verification commands.
+
+### [`validation-environment.md`](validation-environment.md)
+
+Load for exact OpenPLC/toolchain pins, clean installation, repeated validation, and environment evidence.
 
 ### [`architecture.md`](architecture.md)
 

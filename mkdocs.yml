@@ -10,6 +10,7 @@ theme:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Validation Environment: validation-environment.md
   - Architecture: architecture.md
   - MCP Tools: tools.md
   - OpenPLC Projects: openplc-projects.md

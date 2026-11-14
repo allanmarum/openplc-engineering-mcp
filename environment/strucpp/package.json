@@ -1,0 +1,8 @@
+{
+  "name": "openplc-research-strucpp",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "strucpp": "https://github.com/Autonomy-Logic/STruCpp/releases/download/v0.6.6/strucpp-0.6.6.tgz"
+  }
+}

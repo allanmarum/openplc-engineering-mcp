@@ -1,0 +1,74 @@
+name: Reproducible Environment
+
+on:
+  pull_request:
+    paths:
+      - "environment/**"
+      - "scripts/bootstrap-validation.py"
+      - "scripts/verify-validation-environment.py"
+      - ".python-version"
+      - "uv.lock"
+      - "pyproject.toml"
+      - "src/**"
+      - ".github/workflows/reproducible-environment.yml"
+  push:
+    branches: [main]
+    paths:
+      - "environment/**"
+      - "scripts/bootstrap-validation.py"
+      - "scripts/verify-validation-environment.py"
+      - ".python-version"
+      - "uv.lock"
+      - "pyproject.toml"
+      - "src/**"
+      - ".github/workflows/reproducible-environment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clean-install:
+    name: clean-install-${{ matrix.attempt }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Electron system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates git python3 libgtk-3-0t64 libnss3 libasound2t64 \
+            libgbm1 libxss1 libxtst6 libatk1.0-0t64 libatk-bridge2.0-0t64 \
+            libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
+            libxfixes3 libxrandr2 libpango-1.0-0 libcairo2 libatspi2.0-0t64
+      - name: Prepare and verify a fresh environment
+        run: >-
+          python3 scripts/bootstrap-validation.py
+          --root "$RUNNER_TEMP/openplc-validation-${{ matrix.attempt }}"
+          --electron-no-sandbox
+      - name: Confirm qualified host
+        env:
+          VALIDATION_ROOT: ${{ runner.temp }}/openplc-validation-${{ matrix.attempt }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          evidence = Path(os.environ["VALIDATION_ROOT"]) / "evidence"
+          result = json.loads((evidence / "bootstrap.json").read_text())
+          assert result["status"] == "pass" and result["qualified_host"]
+          assert not result["mcp_worktree_dirty"]
+          assert json.loads((evidence / "mcp-smoke.json").read_text())["status"] == "pass"
+          PY
+      - name: Archive installation and compiler evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openplc-environment-${{ matrix.attempt }}
+          path: ${{ runner.temp }}/openplc-validation-${{ matrix.attempt }}/evidence/
+          if-no-files-found: warn
+          retention-days: 90
