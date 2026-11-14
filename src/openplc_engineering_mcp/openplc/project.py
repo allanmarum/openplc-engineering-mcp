@@ -1,6 +1,7 @@
 """OpenPLC project loading, validation, and structure inspection."""
 
 import json
+import os
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
@@ -74,7 +75,7 @@ def load_project_document(
     project_type = meta.get("type")
     if not isinstance(name, str):
         raise ToolError("OpenPLC project not recognized: project.json meta.name must be a string")
-    if project_type not in _PROJECT_TYPES:
+    if not isinstance(project_type, str) or project_type not in _PROJECT_TYPES:
         raise ToolError("OpenPLC project not recognized: unsupported project.json meta.type")
 
     return root, name, cast(ProjectType, project_type), cast(dict[str, object], project)
@@ -140,15 +141,44 @@ def validate_project(project_path: str) -> ProjectValidation:
     }
 
 
+def is_contained(root: Path, path: Path) -> bool:
+    """Check whether a path's resolved target stays inside the project root."""
+    try:
+        return path.resolve().is_relative_to(root)
+    except (OSError, RuntimeError):
+        return False
+
+
+def _inspection_error(error: OSError) -> None:
+    """Convert an unreadable directory during enumeration into a named tool error."""
+    raise ToolError(f'Could not inspect directory "{error.filename}": {error}') from error
+
+
 def list_source_files(root: Path, relative_dir: str, suffixes: set[str]) -> list[Path]:
-    """Return recognized source files under a project-relative directory, sorted."""
+    """Return recognized source files stored inside a project-relative directory, sorted.
+
+    Directory symlinks are not followed and file symlinks whose resolved target
+    escapes the project root are excluded. Unreadable directories and files raise
+    a tool error instead of being silently skipped as if absent.
+    """
     directory = root / relative_dir
     if not directory.is_dir():
         return []
 
-    return sorted(
-        path for path in directory.rglob("*") if path.is_file() and path.suffix.lower() in suffixes
-    )
+    found: list[Path] = []
+    for current, _dirs, file_names in os.walk(directory, onerror=_inspection_error):
+        for file_name in file_names:
+            path = Path(current) / file_name
+            if path.suffix.lower() not in suffixes:
+                continue
+            try:
+                recognized = path.is_file()
+            except OSError as exc:
+                raise ToolError(f'Could not inspect file "{path}": {exc}') from exc
+            if recognized and is_contained(root, path):
+                found.append(path)
+
+    return sorted(found)
 
 
 def _recognized_files(root: Path, relative_dir: str, suffixes: set[str]) -> list[str]:

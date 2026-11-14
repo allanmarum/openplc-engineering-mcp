@@ -11,7 +11,7 @@ from typing import Literal, TypedDict
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from openplc_engineering_mcp.openplc.project import list_source_files, load_project
+from openplc_engineering_mcp.openplc.project import is_contained, list_source_files, load_project
 
 PouType = Literal["program", "function-block", "function"]
 
@@ -68,21 +68,13 @@ def _content_hash(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
-def _is_contained(root: Path, path: Path) -> bool:
-    """Check whether a path's resolved target stays inside the project root."""
-    try:
-        return path.resolve().is_relative_to(root)
-    except (OSError, RuntimeError):
-        return False
-
-
 def _list_pous(root: Path) -> list[PouInfo]:
     """List POUs recognized by the current OpenPLC Editor project layout."""
     by_name: dict[str, PouInfo] = {}
 
     for pou_type, relative_dir in _POU_DIRECTORIES:
         for path in list_source_files(root, relative_dir, set(_POU_LANGUAGES)):
-            if not _is_contained(root, path):
+            if not is_contained(root, path):
                 continue
             suffix = path.suffix.lower()
             info: PouInfo = {
@@ -115,7 +107,7 @@ def read_pou(project_path: str, pou_name: str) -> PouContent:
 
     path = root / pou["path"]
     try:
-        if not _is_contained(root, path):
+        if not is_contained(root, path):
             raise ToolError(f'Could not read POU "{pou_name}": source is outside the project')
         raw = path.read_bytes()
     except (OSError, RuntimeError) as exc:
@@ -141,7 +133,7 @@ def _find_pou_matches(root: Path, pou_name: str) -> list[PouInfo]:
     matches: list[PouInfo] = []
     for pou_type, relative_dir in _POU_DIRECTORIES:
         for path in list_source_files(root, relative_dir, set(_POU_LANGUAGES)):
-            if path.stem != pou_name or not _is_contained(root, path):
+            if path.stem != pou_name or not is_contained(root, path):
                 continue
             matches.append(
                 {
