@@ -884,3 +884,66 @@ def test_update_replace_failure_leaves_target_unchanged(tmp_path: Path, monkeypa
 
     assert target.read_bytes() == original
     assert tree_entries(project / "pous" / "programs") == ["MAIN.st"]
+
+
+def test_cross_type_name_collision_keeps_first_recognized_type(tmp_path: Path) -> None:
+    """Global deduplication keeps the first POU in functions -> function-blocks -> programs order."""
+    project = make_project(tmp_path / "project")
+    (project / "pous" / "functions").mkdir()
+    (project / "pous" / "functions" / "Dup.st").write_text(
+        "FUNCTION Dup : INT\nEND_FUNCTION\n", encoding="utf-8", newline="\n"
+    )
+    (project / "pous" / "programs" / "Dup.st").write_text(
+        "PROGRAM Dup\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
+    )
+
+    pous = list_pous(str(project))
+
+    assert [(pou["name"], pou["type"]) for pou in pous if pou["name"] == "Dup"] == [
+        ("Dup", "function")
+    ]
+    assert read_pou(str(project), "Dup")["type"] == "function"
+
+
+def test_read_pou_name_resolution_is_case_sensitive(tmp_path: Path) -> None:
+    project = make_project(tmp_path / "project")
+
+    with pytest.raises(ToolError, match='POU not found: "MAIN"'):
+        read_pou(str(project), "MAIN")
+
+
+CANONICAL_EDITOR_POU = (
+    "(* Pump station main program *)\n"
+    "\n"
+    "PROGRAM Pump\n"
+    "  VAR_INPUT\n"
+    "    Enable : BOOL;\n"
+    "  END_VAR\n"
+    "  VAR\n"
+    "    Coil : BOOL AT %QX0.0 := FALSE; (* output coil *)\n"
+    "  END_VAR\n"
+    "\n"
+    "\n"
+    "    Coil := Enable;\n"
+    "\n"
+    "\n"
+    "END_PROGRAM"
+)
+
+
+def test_canonical_editor_serialized_pou_round_trips(tmp_path: Path) -> None:
+    """The byte-exact shape emitted by the pinned editor serializer reads and updates."""
+    project = make_update_project(tmp_path / "project")
+    target = project / "pous" / "programs" / "Pump.st"
+    target.write_bytes(CANONICAL_EDITOR_POU.encode("utf-8"))
+
+    pou = read_pou(str(project), "Pump")
+
+    assert pou["content"] == CANONICAL_EDITOR_POU
+    assert pou["content_hash"] == sha256_token(CANONICAL_EDITOR_POU.encode("utf-8"))
+
+    replacement = CANONICAL_EDITOR_POU.replace("Coil := Enable;", "Coil := Enable OR TRUE;")
+    updated = update_pou(str(project), "Pump", replacement, pou["content_hash"])
+
+    assert updated["content_hash"] == sha256_token(replacement.encode("utf-8"))
+    assert target.read_bytes() == replacement.encode("utf-8")

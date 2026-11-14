@@ -91,6 +91,8 @@ The supported derivations are the three currently persisted by OpenPLC:
 
 The `.dt` parser intentionally accepts only the text forms needed by the current OpenPLC data-type serializer. It recognizes single-line enumerations and arrays plus line-oriented structures. Declared types and initial values are preserved as strings rather than converted into OpenPLC's internal variable-type representation or evaluated as IEC literals.
 
+These accepted forms were verified against the frozen serializer sources of the pinned editor revision (`data-type-serializer.ts` and its inverse `data-type-text-parser.ts` at commit `f0bb418b`): structure fields may use derived (project-defined) types and initialized inline arrays. The serializer folds documentation newlines into spaces, so a multi-line `(* ... *)` comment inside a `.dt` file is outside the persisted representation and remains a parse error; the current type model also persists `STRING` without a length, so `STRING[n]` forms are not interpreted.
+
 For example, a structure field may report:
 
 ```text
@@ -143,7 +145,7 @@ program: string
 
 The instance `task` field identifies the configured Task, while `program` identifies the Program POU to instantiate. The MCP preserves these references as stored and does not independently prove that the referenced Task or Program exists.
 
-For a cyclic Task, `get_execution_configuration()` preserves the original IEC `TIME` interval string such as `T#20ms` or `T#1s`. For an interrupt Task, the public MCP contract returns `interval: null` rather than exposing the stored interval field as cyclic timing.
+For a cyclic Task, `get_execution_configuration()` preserves the original IEC `TIME` interval string such as `T#20ms` or `T#1s`. For an interrupt Task, the public MCP contract returns `interval: null` rather than exposing the stored interval field as cyclic timing. An interrupt Task persisted by the editor also carries its `single` event-signal field (the IEC `SINGLE`/`MULTI` operand); the public contract does not expose it.
 
 A project with no execution configuration returns empty Task and Program Instance lists. If Task or Program Instance data is present but structurally malformed, the MCP raises a tool error rather than returning misleading data.
 
@@ -187,7 +189,7 @@ Vendor Plugin Package configuration is separate. OpenPLC can compile arbitrary `
 data.configuration.resource.globalVariables
 ```
 
-Each current-format variable provides the data mapped into the public variable contract: `name`, structured declared `type`, `location`, `initialValue`, and `documentation`. The MCP takes the declared type from the current type object's `value` field. The containing resource defines the scope, so the MCP always reports `class: "global"` regardless of any stored class field.
+Each current-format variable provides the data mapped into the public variable contract: `name`, structured declared `type`, `location`, `initialValue`, and `documentation`. The MCP takes the declared type from the current type object's `value` field. The containing resource defines the scope, so the MCP always reports `class: "global"` regardless of any stored class field. A `location` bound to an I/O alias is returned as the stored alias reference; the editor resolves aliases to literal `%…` addresses only when rendering ST.
 
 This operation intentionally does not scan POUs for `VAR_GLOBAL` declarations and does not include named global variable lists (`globalVariableLists` / GVLs), which are separate domain concepts. Missing configuration or missing `globalVariables` yields an empty result; structurally malformed current-format data is raised as a tool error.
 
@@ -212,7 +214,7 @@ The reported POU language is derived from the current source-file suffix:
 | `.py` | `python` |
 | `.cpp` | `cpp` |
 
-Historical JSON-only POUs are not discovered. POU names are deduplicated globally and results are sorted by POU type, name, and path.
+Historical JSON-only POUs are not discovered. POU names are deduplicated globally and results are sorted by POU type, name, and path. On a name collision across POU directories the first recognized occurrence wins, in `functions` → `function-blocks` → `programs` order, and `read_pou()` resolves that same single POU; `update_pou()` instead rejects the collision as ambiguous. Name resolution is case-sensitive. `get_project_structure()` lists every recognized physical file and therefore reports both files of a collision.
 
 ## POU reading
 
@@ -266,6 +268,8 @@ VAR            -> local
 The MCP extracts only the declaration information required by its public contract: name, class, declared type, optional location, optional initial value, and optional inline documentation. It preserves declaration order and keeps type and initial-value expressions as strings rather than recreating OpenPLC's internal type model or evaluating IEC literals.
 
 Extraction is comment-aware: `(* ... *)` comments are ignored wherever they appear, so documentation examples cannot introduce declaration blocks or variables, and only a single-line comment trailing a declaration's terminating semicolon is reported as its documentation. The accepted declaration text covers the forms the upstream serializer emits, including negative array bounds (for example `ARRAY [-2..2] OF INT`) and single-quoted string initial values reported verbatim (for example `'a;b'`). This is not a general IEC parser; unsupported declaration text remains a tool error.
+
+The verified serializer forms of the pinned revision (`generate-iec-variables-to-string.ts` and `pou-text-serializer.ts` at commit `f0bb418b`) are: two-space block keywords and four-space declarations; `CONSTANT`/`RETAIN` qualifiers on the block header, which the MCP accepts and maps by keyword without exposing the flag; the pinned declaration order `name : TYPE AT location := initial;` (later builds also emit `name AT location : TYPE := initial;` — both are accepted); an empty interface persisted as a literal `VAR`/`END_VAR` block; a POU-level documentation comment preceding the declaration; and the closing `END_*` keyword with no trailing newline. A variable's stored `location` may also be an I/O alias reference rather than a literal `%…` address; it is returned exactly as stored, without alias resolution.
 
 The OpenPLC Editor currently allows located declarations in local and global blocks; interface, external, and temporary classes do not carry physical locations. The MCP rejects a located declaration in those classes rather than reporting a misleading representation.
 

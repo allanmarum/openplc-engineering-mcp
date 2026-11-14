@@ -436,6 +436,96 @@ async def test_invalid_call_does_not_block_subsequent_calls(client: Client, tmp_
 
 
 @pytest.mark.anyio
+async def test_read_tools_leave_the_project_unchanged(client: Client, tmp_path: Path) -> None:
+    """Every read-only tool preserves the exact bytes of a complete plc-project."""
+    project = tmp_path / "project"
+    (project / "pous" / "programs").mkdir(parents=True)
+    (project / "pous" / "function-blocks").mkdir(parents=True)
+    (project / "datatypes").mkdir()
+    (project / "devices").mkdir()
+    (project / "project.json").write_text(
+        json.dumps(
+            {
+                "meta": {"name": "Full", "type": "plc-project"},
+                "data": {
+                    "configuration": {
+                        "resource": {
+                            "tasks": [
+                                {
+                                    "name": "T0",
+                                    "triggering": "Cyclic",
+                                    "interval": "T#20ms",
+                                    "priority": 0,
+                                }
+                            ],
+                            "instances": [{"name": "I0", "task": "T0", "program": "main"}],
+                            "globalVariables": [
+                                {
+                                    "name": "G0",
+                                    "type": {"definition": "base-type", "value": "BOOL"},
+                                    "location": "",
+                                    "initialValue": "",
+                                    "documentation": "",
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project / "pous" / "programs" / "main.st").write_text(
+        "PROGRAM main\nVAR\n    x : INT;\nEND_VAR\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
+    )
+    (project / "pous" / "function-blocks" / "Motor.st").write_text(
+        "FUNCTION_BLOCK Motor\nEND_FUNCTION_BLOCK\n", encoding="utf-8", newline="\n"
+    )
+    (project / "datatypes" / "Mode.dt").write_text(
+        "TYPE\nMode : (Off, On);\nEND_TYPE\n", encoding="utf-8", newline="\n"
+    )
+    (project / "devices" / "configuration.json").write_text(
+        json.dumps({"deviceBoard": "OpenPLC Simulator"}), encoding="utf-8"
+    )
+    (project / "devices" / "pin-mapping.json").write_text(
+        json.dumps(
+            {
+                "OpenPLC Simulator": [
+                    {"pin": "2", "pinType": "digitalInput", "address": "%IX0.0", "alias": "Start"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def snapshot() -> dict[str, bytes]:
+        return {
+            str(path.relative_to(project)): path.read_bytes()
+            for path in sorted(project.rglob("*"))
+            if path.is_file()
+        }
+
+    before = snapshot()
+    for tool, arguments in [
+        ("validate_project", {}),
+        ("get_project_structure", {}),
+        ("get_project_overview", {}),
+        ("list_pous", {}),
+        ("list_datatypes", {}),
+        ("get_execution_configuration", {}),
+        ("list_global_variables", {}),
+        ("get_io_configuration", {}),
+        ("read_pou", {"pou_name": "main"}),
+        ("list_variables", {"pou_name": "main"}),
+    ]:
+        result = await client.call_tool(tool, {"project_path": str(project), **arguments})
+
+        assert not result.is_error, tool
+
+    assert snapshot() == before
+
+
+@pytest.mark.anyio
 async def test_list_variables_returns_structured_content(client: Client, tmp_path: Path) -> None:
     project = tmp_path / "project"
     (project / "pous" / "function-blocks").mkdir(parents=True)

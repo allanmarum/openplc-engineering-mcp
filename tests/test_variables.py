@@ -498,3 +498,94 @@ def test_list_global_variables_rejects_non_array_global_variables(tmp_path: Path
 
     with pytest.raises(ToolError, match="global variables must be an array"):
         list_global_variables(str(project))
+
+
+def test_list_variables_accepts_editor_serializer_block_forms(tmp_path: Path) -> None:
+    """Block flags (RETAIN/CONSTANT), indented blocks, and tight array dims parse."""
+    project = make_source_project(
+        tmp_path / "project",
+        """PROGRAM FormMain
+  VAR_GLOBAL RETAIN
+    TotalCount AT %MD0 : DINT := 0;
+  END_VAR
+  VAR CONSTANT
+    Limit : INT := 120;
+  END_VAR
+  VAR
+    Matrix : ARRAY [0..2,0..2] OF INT;
+  END_VAR
+END_PROGRAM
+""",
+        name="FormMain",
+        pou_dir="programs",
+    )
+
+    assert list_variables(str(project), "FormMain") == [
+        {
+            "name": "TotalCount",
+            "class": "global",
+            "type": "DINT",
+            "location": "%MD0",
+            "initial_value": "0",
+            "documentation": None,
+        },
+        {
+            "name": "Limit",
+            "class": "local",
+            "type": "INT",
+            "location": None,
+            "initial_value": "120",
+            "documentation": None,
+        },
+        {
+            "name": "Matrix",
+            "class": "local",
+            "type": "ARRAY [0..2,0..2] OF INT",
+            "location": None,
+            "initial_value": None,
+            "documentation": None,
+        },
+    ]
+
+
+def test_list_variables_supports_pinned_serializer_declaration_order(tmp_path: Path) -> None:
+    """The pinned editor emits `name : TYPE AT location := initial;` (AT after the type)."""
+    project = make_source_project(
+        tmp_path / "project",
+        """(* Pump station main program *)
+
+PROGRAM Pump
+  VAR_INPUT
+    Enable : BOOL;
+  END_VAR
+  VAR
+    Coil : BOOL AT %QX0.0 := FALSE; (* output coil *)
+  END_VAR
+
+
+    Coil := Enable;
+
+
+END_PROGRAM""",
+        name="Pump",
+        pou_dir="programs",
+    )
+
+    assert list_variables(str(project), "Pump") == [
+        {
+            "name": "Enable",
+            "class": "input",
+            "type": "BOOL",
+            "location": None,
+            "initial_value": None,
+            "documentation": None,
+        },
+        {
+            "name": "Coil",
+            "class": "local",
+            "type": "BOOL",
+            "location": "%QX0.0",
+            "initial_value": "FALSE",
+            "documentation": "output coil",
+        },
+    ]
