@@ -1,5 +1,7 @@
 # MCP tools
 
+The [release contract](release-contract.md) freezes this thirteen-tool interface for the research release. This document remains the source for detailed inputs, outputs, errors, and operation semantics.
+
 The current server registers exactly thirteen domain-oriented tools. All tools use `open_world_hint: false`. Inspection and diagnostics tools are read-only; `compile_project` and `update_pou` are registered with `read_only_hint: false`. Compilation may write local build artifacts through the OpenPLC CLI; `update_pou` replaces the persisted content of one existing Structured Text POU.
 
 The public registrations live in `src/openplc_engineering_mcp/server.py`. OpenPLC behavior is grouped by responsibility under `src/openplc_engineering_mcp/openplc/`.

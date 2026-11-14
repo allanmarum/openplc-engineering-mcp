@@ -10,10 +10,12 @@ The project uses the official Model Context Protocol Python SDK and stdio transp
 
 Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
+The release support baseline is Ubuntu 24.04 LTS x86_64 with CPython 3.12.x. The [release contract](docs/release-contract.md) freezes the thirteen-tool interface and defines the evidence required before the release can be declared complete.
+
 ```bash
-git clone https://github.com/industrix-com-br/openplc-engineering-mcp.git
+git clone https://github.com/allanmarum/openplc-engineering-mcp.git
 cd openplc-engineering-mcp
-uv sync
+uv sync --locked --python 3.12
 uv run openplc-engineering-mcp
 ```
 
