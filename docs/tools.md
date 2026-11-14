@@ -64,6 +64,8 @@ Returns:
 - project `type`;
 - sorted list of recognized current-format project `files`.
 
+Enumeration is fail-closed: a directory or file that cannot be inspected is a tool error naming the path, never a silent omission. Directory symlinks are not followed and file symlinks escaping the project root are excluded (see [`openplc-projects.md`](openplc-projects.md) for the full policy).
+
 Historical JSON POU files are not included in the recognized POU layout. Use [`openplc-projects.md`](openplc-projects.md) for the supported structure.
 
 ## `list_pous`

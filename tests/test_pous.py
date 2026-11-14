@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from conftest import requires_symlinks
 from mcp.server.mcpserver.exceptions import ToolError
 
 from openplc_engineering_mcp.openplc.compiler import get_diagnostics
@@ -62,23 +63,6 @@ def make_update_project(root: Path) -> Path:
 def sha256_token(raw: bytes) -> str:
     """Return the exact-byte sha256: token expected for raw persisted bytes."""
     return "sha256:" + hashlib.sha256(raw).hexdigest()
-
-
-def _symlinks_supported() -> bool:
-    """Windows only allows os.symlink with admin rights or developer mode enabled."""
-    try:
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "target"
-            target.touch()
-            (Path(tmp) / "link").symlink_to(target)
-    except OSError:
-        return False
-    return True
-
-
-requires_symlinks = pytest.mark.skipif(
-    not _symlinks_supported(), reason="creating symlinks requires elevation on this platform"
-)
 
 
 def current_hash(project: Path, pou_name: str) -> str:

@@ -30,6 +30,8 @@ Supported project types are:
 
 The supplied path is expanded and resolved before it is returned or used by other operations.
 
+A `project.json` that cannot be read (including permission failures and non-UTF-8 bytes), that is not valid JSON (including a UTF-8 BOM), or whose `meta` fields have wrong JSON shapes — `meta` absent or not an object, `meta.name` not a string, `meta.type` not a string — is raised as a tool error that names `project.json` and the offending field. These are precondition failures, never partially interpreted projects.
+
 ## Engineering overview
 
 `get_project_overview()` composes the existing inspection readers into a concise navigation map of engineering elements. It shares their recognition and parsing limits; it does not interpret the complete OpenPLC schema. Its `files` field reuses the physical inventory below exactly. For libraries, physical I/O is `null`; absent execution configuration produces empty lists. See [`tools.md`](tools.md#get_project_overview) for fields, ordering, and errors.
@@ -64,6 +66,12 @@ For POU directories, recognized current source suffixes are:
 Historical JSON POU files are not part of the recognized POU layout. Server and remote-device directories may still contain JSON because JSON remains part of their current representation; only `.dt` files are included from `datatypes/`.
 
 Returned file paths are project-relative, use POSIX separators, are deduplicated, and are sorted.
+
+## Symbolic links and unreadable paths
+
+Enumeration of the recognized directories is fail-closed. A directory or file that cannot be inspected — for example a permission failure — is raised as a tool error naming the path, never silently skipped as if the collection were empty. An absent directory remains a valid empty collection; an unreadable one is an error.
+
+Directory symlinks under the recognized layout are not followed. A file symlink whose resolved target escapes the project root is excluded from every listing and cannot be read; file symlinks resolving inside the root are treated as their target. `update_pou` applies the strictest rule of all: the target file itself must not be a symlink (see [`tools.md`](tools.md#update_pou)). Listing, reading, and updating are therefore symmetric — a symlink cannot expose external content through any operation.
 
 ## Project-defined data types
 

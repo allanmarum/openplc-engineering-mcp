@@ -411,6 +411,31 @@ async def test_update_pou_errors_are_exposed_through_mcp(client: Client, tmp_pat
 
 
 @pytest.mark.anyio
+async def test_invalid_call_does_not_block_subsequent_calls(client: Client, tmp_path: Path) -> None:
+    """A failing tool call is reported as an error and leaves the session usable."""
+    missing = await client.call_tool(
+        "validate_project", {"project_path": str(tmp_path / "does-not-exist")}
+    )
+
+    assert missing.is_error
+
+    project = tmp_path / "project"
+    (project / "pous" / "programs").mkdir(parents=True)
+    (project / "project.json").write_text(
+        json.dumps({"meta": {"name": "Minimal", "type": "plc-project"}}), encoding="utf-8"
+    )
+    (project / "pous" / "programs" / "main.st").write_text(
+        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
+    )
+
+    result = await client.call_tool(
+        "read_pou", {"project_path": str(project), "pou_name": "main"}
+    )
+
+    assert not result.is_error
+
+
+@pytest.mark.anyio
 async def test_list_variables_returns_structured_content(client: Client, tmp_path: Path) -> None:
     project = tmp_path / "project"
     (project / "pous" / "function-blocks").mkdir(parents=True)
