@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -290,10 +291,11 @@ def test_symlinked_pou_directory_is_not_descended_in_structure(tmp_path: Path) -
     external_dir = tmp_path / "external-pous"
     external_dir.mkdir()
     (external_dir / "Outside.st").write_text("PROGRAM Outside\nEND_PROGRAM\n", encoding="utf-8")
-    (project / "pous" / "programs").unlink()
+    shutil.rmtree(project / "pous" / "programs")
     (project / "pous" / "programs").symlink_to(external_dir)
 
     assert get_project_structure(str(project))["files"] == [
+        "devices/configuration.json",
         "pous/function-blocks/Motor.st",
         "project.json",
     ]
