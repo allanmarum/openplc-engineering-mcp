@@ -395,7 +395,7 @@ It returns:
 - `exit_code`: the CLI exit code;
 - `output`: parsed JSON from CLI `stdout`, or `null` when `stdout` is empty.
 
-The command must be available as `openplc-cli` on `PATH`. A missing executable, an OS error while starting the process, or non-JSON non-empty `stdout` is exposed as an MCP tool error.
+The command must be available as `openplc-cli` on `PATH`; the executable is resolved through PATH extensions (so the Windows `openplc-cli.cmd` shim is executable), and the process is bounded by a 300-second timeout. A missing executable, an OS error while starting the process, a compilation that exceeds the timeout, or non-JSON non-empty `stdout` is exposed as an MCP tool error.
 
 Non-empty lines from CLI `stderr` are captured as diagnostics for [`get_diagnostics`](#get_diagnostics), except known-benign Electron platform-log lines — non-fatal Chromium-format lines (`[pid:date/time:LEVEL:source(line)]`) from the observed D-Bus chatter sources `bus.cc` and `object_proxy.cc` — and the editor's user-data scaffolding notices (`File already exists at ...` / `Skipping creation.`). Chromium lines from unknown sources and every `FATAL` line are preserved.
 

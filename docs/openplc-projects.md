@@ -296,4 +296,6 @@ openplc-cli compile <resolved-project-path> --json
 
 The MCP does not reproduce compilation semantics. The CLI remains authoritative for compilation, and `success` reflects only whether the CLI exited with status `0`.
 
+The executable is resolved through PATH extensions with `shutil.which()` because Windows `CreateProcess` does not apply `PATHEXT` resolution to a bare program name — the Windows CLI installs as `openplc-cli.cmd`. The subprocess is bounded by a 300-second timeout; a timed-out compilation is raised as an MCP tool error instead of blocking the server indefinitely.
+
 CLI `stdout` is parsed as JSON when non-empty. Non-empty `stderr` lines are retained in memory for `get_diagnostics()`, except known-benign Electron platform-log lines (non-fatal D-Bus chatter from `bus.cc` / `object_proxy.cc`) and user-data scaffolding notices, which are not compile diagnostics. See [`tools.md`](tools.md) for the public compilation and diagnostics contracts.

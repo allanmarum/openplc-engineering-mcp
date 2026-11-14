@@ -19,10 +19,10 @@ def make_project(root: Path) -> Path:
         json.dumps({"meta": {"name": "Example", "type": "plc-project"}}), encoding="utf-8"
     )
     (root / "pous" / "programs" / "main.st").write_text(
-        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8"
+        "PROGRAM main\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
     )
     (root / "pous" / "function-blocks" / "Motor.st").write_text(
-        "FUNCTION_BLOCK Motor\nEND_FUNCTION_BLOCK\n", encoding="utf-8"
+        "FUNCTION_BLOCK Motor\nEND_FUNCTION_BLOCK\n", encoding="utf-8", newline="\n"
     )
     return root
 
@@ -47,15 +47,38 @@ def make_update_project(root: Path) -> Path:
     (root / "project.json").write_text(
         json.dumps({"meta": {"name": "Example", "type": "plc-project"}}), encoding="utf-8"
     )
-    (root / "pous" / "programs" / "MAIN.st").write_text(MAIN_PROGRAM, encoding="utf-8")
-    (root / "pous" / "function-blocks" / "Motor.st").write_text(MOTOR_BLOCK, encoding="utf-8")
-    (root / "pous" / "functions" / "AddTen.st").write_text(ADD_TEN_FUNCTION, encoding="utf-8")
+    (root / "pous" / "programs" / "MAIN.st").write_text(
+        MAIN_PROGRAM, encoding="utf-8", newline="\n"
+    )
+    (root / "pous" / "function-blocks" / "Motor.st").write_text(
+        MOTOR_BLOCK, encoding="utf-8", newline="\n"
+    )
+    (root / "pous" / "functions" / "AddTen.st").write_text(
+        ADD_TEN_FUNCTION, encoding="utf-8", newline="\n"
+    )
     return root
 
 
 def sha256_token(raw: bytes) -> str:
     """Return the exact-byte sha256: token expected for raw persisted bytes."""
     return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _symlinks_supported() -> bool:
+    """Windows only allows os.symlink with admin rights or developer mode enabled."""
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target"
+            target.touch()
+            (Path(tmp) / "link").symlink_to(target)
+    except OSError:
+        return False
+    return True
+
+
+requires_symlinks = pytest.mark.skipif(
+    not _symlinks_supported(), reason="creating symlinks requires elevation on this platform"
+)
 
 
 def current_hash(project: Path, pou_name: str) -> str:
@@ -160,6 +183,7 @@ def test_read_pou_rejects_empty_name(tmp_path: Path) -> None:
         read_pou(str(project), "  ")
 
 
+@requires_symlinks
 def test_escaping_symlink_is_not_listed_nor_read(tmp_path: Path) -> None:
     project = make_project(tmp_path / "project")
     external_source = tmp_path / "External.st"
@@ -406,6 +430,7 @@ def test_noop_update_does_not_physically_replace_the_file(tmp_path: Path) -> Non
     assert after.st_ino == before.st_ino
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows cannot represent POSIX file modes")
 def test_update_preserves_target_file_mode(tmp_path: Path) -> None:
     """The target's file mode is preserved across the replacement."""
     project = make_update_project(tmp_path / "project")
@@ -709,6 +734,7 @@ def test_malformed_existing_pou_can_be_repaired(tmp_path: Path) -> None:
     assert result["content_hash"] == sha256_token(replacement.encode("utf-8"))
 
 
+@requires_symlinks
 def test_update_rejects_symlink_target_inside_the_project(tmp_path: Path) -> None:
     """A symlinked POU target inside the project is rejected for update."""
     project = make_update_project(tmp_path / "project")
@@ -725,6 +751,7 @@ def test_update_rejects_symlink_target_inside_the_project(tmp_path: Path) -> Non
     assert alias.is_symlink()
 
 
+@requires_symlinks
 def test_update_rejects_pou_resolving_outside_the_project(tmp_path: Path) -> None:
     """A POU source resolving outside the project root is not updatable."""
     external_dir = tmp_path / "external"
