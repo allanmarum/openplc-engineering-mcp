@@ -405,7 +405,7 @@ The timeout defaults to 300 seconds and can be overridden for the server process
 
 Practical limits, kept honest with what the tests establish: a descendant that deliberately starts its own session/process group escapes the POSIX group kill; on Windows — outside the supported qualification baseline — `taskkill /T` cannot reach descendants once the direct CLI process has already exited; and descendants the CLI itself leaves behind after a *successful* exit are not cleaned up.
 
-Concurrency: compilations and [`update_pou`](#update_pou) calls targeting the **same** resolved project are serialized (the later operation waits; there is no queue, scheduler, or rejection). This makes diagnostics ownership deterministic — the latest completed compilation owns the stored diagnostics, and a physical POU replacement can never interleave with a compilation. Read-only tools and operations on different projects run concurrently.
+Concurrency: compilations and [`update_pou`](#update_pou) calls targeting the **same** resolved project are serialized (the later operation waits; there is no queue, scheduler, or rejection). The wait itself is cancellable: a `compile_project` request cancelled or disconnected while still waiting for the lock stops waiting immediately, never starts a compilation of its own, and disturbs neither the running operation nor its diagnostics. This makes diagnostics ownership deterministic — the latest completed compilation owns the stored diagnostics, and a physical POU replacement can never interleave with a compilation. Read-only tools and operations on different projects run concurrently.
 
 Non-empty lines from CLI `stderr` are captured as diagnostics for [`get_diagnostics`](#get_diagnostics), except known-benign Electron platform-log lines — non-fatal Chromium-format lines (`[pid:date/time:LEVEL:source(line)]`) from the observed D-Bus chatter sources `bus.cc` and `object_proxy.cc` — and the editor's user-data scaffolding notices (`File already exists at ...` / `Skipping creation.`). Chromium lines from unknown sources and every `FATAL` line are preserved.
 
@@ -415,18 +415,30 @@ Input:
 
 - `project_path: str`
 
-Returns the `stderr` lines captured from the project's most recent `compile_project` call, with Electron platform-log and scaffolding noise excluded (see [`compile_project`](#compile_project)).
+Returns the `stderr` lines captured from the project's most recent `compile_project` call observed by this server process, with Electron platform-log and scaffolding noise excluded (see [`compile_project`](#compile_project)).
 
-Diagnostics are intentionally process-local and always describe the project's current compiled state:
+Diagnostics are process-local and describe the **most recent compilation attempt this server observed**, not a live view of the project's compiled state:
 
-- they are stored in memory, keyed by the resolved project path;
-- a later completed compilation of the same project replaces the previous diagnostics;
-- a successful `update_pou` that physically replaces a POU drops that project's diagnostics (a byte-identical no-op update does not);
-- a compilation attempt that produces no new result — a missing CLI, a process start failure, or a timeout — also drops the previous diagnostics, so stored lines can never refer to an earlier compile attempt;
-- they are not persisted across server restarts;
+- they are stored in memory, keyed by the resolved project path, so equivalent relative and absolute paths share one entry and different projects are independent;
+- they are not persisted across server restarts — a restarted server has no stored diagnostics;
+- the MCP does not watch the filesystem: sources edited outside `update_pou` (for example in the OpenPLC Editor or another tool) do not invalidate stored lines, because the guarantee is bounded to the mutating operations the server itself performs;
 - calling this tool when no diagnostics are stored raises an MCP tool error.
 
-An executed compilation with no `stderr` produces an empty list.
+An executed compilation with no `stderr` produces an empty list. A compilation whose non-empty `stdout` is not valid JSON is still an executed attempt: its `stderr` lines are stored as the current diagnostics even though the call itself raises an MCP tool error.
+
+Diagnostic lifetime:
+
+| Event | Stored diagnostics afterwards |
+| --- | --- |
+| No compilation observed yet for the project | none — `get_diagnostics` raises |
+| Compilation finishes (any exit code, empty or valid `stdout`) | replaced by that attempt's filtered `stderr` (possibly an empty list) |
+| Compilation finishes with invalid non-empty `stdout` | replaced by that attempt's filtered `stderr`; the call raises |
+| `update_pou` physically replaces the persisted bytes | dropped |
+| `update_pou` byte-identical no-op, or any update rejected before the replacement | unchanged |
+| Attempt produces no new result — missing CLI, process start failure, invalid timeout configuration, timeout, cancellation, or disconnection | dropped |
+| Server process restarts | dropped (process-local) |
+
+Because `compile_project` and `update_pou` are serialized per resolved project, a late-finishing compilation can never repopulate diagnostics after a later invalidation: the only stored lines come from the latest serialized attempt.
 
 ## Adding a tool
 

@@ -241,6 +241,54 @@ def test_compile_timeout_rejects_invalid_environment_override(
         compile_project(str(project))
 
 
+def test_invalid_timeout_override_drops_diagnostics(
+    tmp_path: Path, monkeypatch, cli_on_path: str
+) -> None:
+    """An attempt rejected before the CLI runs still invalidates stored lines.
+
+    The policy is conservative: an attempt that produced no new result drops the
+    previous diagnostics so nothing stale can be presented as current, even when
+    the attempt failed before the compiler was ever started.
+    """
+    project = make_project(tmp_path / "project")
+    compile_success(monkeypatch, project)
+    install_cli(monkeypatch)
+    monkeypatch.setenv("OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS", "abc")
+
+    with pytest.raises(ToolError, match="Invalid OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS value"):
+        compile_project(str(project))
+
+    with pytest.raises(ToolError, match="No compilation diagnostics are available"):
+        get_diagnostics(str(project))
+
+
+def test_diagnostics_are_keyed_by_resolved_project_path(
+    tmp_path: Path, monkeypatch, cli_on_path: str
+) -> None:
+    """Relative and absolute project paths share one diagnostics entry."""
+    project = make_project(tmp_path / "project")
+    install_cli(monkeypatch, returncode=4, stdout="", stderr="main.st:1: error: relative\n")
+    monkeypatch.chdir(tmp_path)
+
+    compile_project("project")
+
+    assert get_diagnostics(str(project.resolve())) == ["main.st:1: error: relative"]
+
+
+def test_diagnostics_of_different_projects_are_independent(
+    tmp_path: Path, monkeypatch, cli_on_path: str
+) -> None:
+    first = make_project(tmp_path / "first")
+    second = make_project(tmp_path / "second")
+    install_cli(monkeypatch, returncode=4, stdout="", stderr="first.st:1: error: one\n")
+    compile_project(str(first))
+    install_cli(monkeypatch, returncode=4, stdout="", stderr="second.st:1: error: two\n")
+    compile_project(str(second))
+
+    assert get_diagnostics(str(first)) == ["first.st:1: error: one"]
+    assert get_diagnostics(str(second)) == ["second.st:1: error: two"]
+
+
 def test_compile_project_resolves_cli_through_path_extensions(
     tmp_path: Path, monkeypatch, cli_on_path: str
 ) -> None:

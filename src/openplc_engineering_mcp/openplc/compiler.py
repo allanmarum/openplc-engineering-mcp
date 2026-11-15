@@ -20,6 +20,7 @@ from openplc_engineering_mcp.openplc.project import load_project
 _COMPILE_TIMEOUT_SECONDS = 300
 _TIMEOUT_ENV_VAR = "OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS"
 _REAP_GRACE_SECONDS = 10
+_LOCK_POLL_SECONDS = 0.05
 
 
 class CompileResult(TypedDict):
@@ -253,23 +254,27 @@ async def compile_project_async(project_path: str) -> CompileResult:
 
     The official SDK executes tools in worker threads it will not interrupt, so a
     synchronous tool would keep compiling until the timeout even after the client
-    cancels the request or disconnects. This entry point runs the same bounded
-    CLI call but abandons the worker thread and terminates the process tree as
-    soon as the await is cancelled.
+    cancels the request or disconnects. This entry point keeps both waits
+    cancellable: the project lock is acquired by polling at await points instead
+    of blocking a worker thread, and the CLI run abandons its worker thread and
+    terminates the process tree as soon as the await is cancelled. A request
+    cancelled while waiting for the lock stops waiting immediately, never starts
+    compiling, and disturbs neither the running operation nor its diagnostics.
     """
     root, _, _ = load_project(project_path)
     lock = project_operation_lock(root)
-    lock_held: list[bool] = []
-
-    def acquire_lock() -> None:
-        lock.acquire()
-        lock_held.append(True)
-
+    acquired = False
     try:
-        # A non-abandonable acquire always lets the worker thread finish, so the
-        # flag above is set before cancellation can surface at the await. This
-        # cannot leak the lock even when the wait for a long compile is cancelled.
-        await anyio.to_thread.run_sync(acquire_lock)
+        # A blocking acquire in a worker thread cannot be interrupted, so a
+        # cancelled request would stay blocked until the running operation
+        # released the lock. Polling the non-blocking acquire at await points
+        # makes the wait cancellable; a sync waiter already blocked inside
+        # ``with lock:`` is woken by release() and still wins the handoff. There
+        # is no await between a successful acquire and ``acquired = True``, so
+        # cancellation can never strand an acquired-but-untracked lock.
+        while not lock.acquire(blocking=False):
+            await anyio.sleep(_LOCK_POLL_SECONDS)
+        acquired = True
         handle = _CompileProcessHandle()
         try:
             executable = _resolve_cli()
@@ -286,7 +291,7 @@ async def compile_project_async(project_path: str) -> CompileResult:
             raise
         return _record_result(root, returncode, stdout, stderr)
     finally:
-        if lock_held:
+        if acquired:
             lock.release()
 
 

@@ -436,6 +436,39 @@ async def test_invalid_call_does_not_block_subsequent_calls(client: Client, tmp_
 
 
 @pytest.mark.anyio
+async def test_project_switching_on_one_session(client: Client, tmp_path: Path) -> None:
+    """One session serves successive projects without carrying state across."""
+    for name in ("alpha", "beta"):
+        project = tmp_path / name
+        (project / "pous" / "programs").mkdir(parents=True)
+        (project / "project.json").write_text(
+            json.dumps({"meta": {"name": name, "type": "plc-project"}}), encoding="utf-8"
+        )
+        (project / "pous" / "programs" / f"{name}.st").write_text(
+            f"PROGRAM {name}\nEND_PROGRAM\n", encoding="utf-8", newline="\n"
+        )
+
+    alpha = await client.call_tool(
+        "read_pou", {"project_path": str(tmp_path / "alpha"), "pou_name": "alpha"}
+    )
+    beta = await client.call_tool(
+        "read_pou", {"project_path": str(tmp_path / "beta"), "pou_name": "beta"}
+    )
+    assert not alpha.is_error
+    assert not beta.is_error
+    assert alpha.structured_content is not None and beta.structured_content is not None
+    assert alpha.structured_content["content"] == "PROGRAM alpha\nEND_PROGRAM\n"
+    assert beta.structured_content["content"] == "PROGRAM beta\nEND_PROGRAM\n"
+
+    # Compilable-state diagnostics never leak between projects on one session.
+    missing = await client.call_tool(
+        "get_diagnostics", {"project_path": str(tmp_path / "alpha")}
+    )
+    assert missing.is_error
+    assert "No compilation diagnostics are available" in tool_text(missing)
+
+
+@pytest.mark.anyio
 async def test_read_tools_leave_the_project_unchanged(client: Client, tmp_path: Path) -> None:
     """Every read-only tool preserves the exact bytes of a complete plc-project."""
     project = tmp_path / "project"

@@ -70,6 +70,63 @@ def fake_openplc_cli_launcher(tmp_path: Path, monkeypatch) -> SimpleNamespace:
     return _install_fake_cli(monkeypatch, tmp_path, "launcher-cli-bin", LAUNCHER_CLI_IMPL)
 
 
+# A gated fake openplc-cli: every invocation records its process id, blocks until
+# the test creates the release file, then completes successfully with one stderr
+# diagnostic line, so one run can be held in flight and released on demand.
+GATED_CLI_IMPL = """import json
+import os
+import sys
+import time
+
+with open(os.environ["FAKE_OPENPLC_CLI_INVOCATIONS"], "a", encoding="utf-8") as handle:
+    handle.write(f"{os.getpid()}\\n")
+release = os.environ["FAKE_OPENPLC_CLI_RELEASE"]
+deadline = time.monotonic() + 30
+while time.monotonic() < deadline and not os.path.exists(release):
+    time.sleep(0.05)
+sys.stderr.write("main.st:1: error: gated compile diagnostic\\n")
+print(json.dumps({"ok": True}))
+"""
+
+
+@pytest.fixture
+def gated_openplc_cli(tmp_path: Path, monkeypatch) -> SimpleNamespace:
+    """Install a fake openplc-cli that completes only after the test releases it."""
+    bin_dir = tmp_path / "gated-cli-bin"
+    bin_dir.mkdir()
+    invocations_file = tmp_path / "gated-cli-invocations.txt"
+    release_file = tmp_path / "gated-cli-release.txt"
+    if os.name == "nt":
+        impl = bin_dir / "cli_impl.py"
+        impl.write_text(GATED_CLI_IMPL, encoding="utf-8")
+        executable = bin_dir / "openplc-cli.cmd"
+        executable.write_text(f'@"{sys.executable}" "{impl}" %*\n', encoding="utf-8")
+    else:
+        executable = bin_dir / "openplc-cli"
+        executable.write_text(f"#!{sys.executable}\n" + GATED_CLI_IMPL, encoding="utf-8")
+        executable.chmod(0o755)
+    monkeypatch.setenv("FAKE_OPENPLC_CLI_INVOCATIONS", str(invocations_file))
+    monkeypatch.setenv("FAKE_OPENPLC_CLI_RELEASE", str(release_file))
+    return SimpleNamespace(
+        path=executable,
+        bin_dir=bin_dir,
+        invocations_file=invocations_file,
+        release_file=release_file,
+    )
+
+
+def wait_for_cli_invocations(invocations_file: Path, count: int = 1, timeout: float = 15) -> list[int]:
+    """Wait until the gated fake CLI reports the expected number of invocations."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if invocations_file.exists():
+            pids = [int(line) for line in invocations_file.read_text(encoding="utf-8").split() if line]
+            if len(pids) >= count:
+                return pids
+        time.sleep(0.05)
+    raise AssertionError(f"fake openplc-cli never reached {count} invocation(s)")
+
+
 def _install_fake_cli(
     monkeypatch, tmp_path: Path, bin_dir_name: str, impl_source: str
 ) -> SimpleNamespace:

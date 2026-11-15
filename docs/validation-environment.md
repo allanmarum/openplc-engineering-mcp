@@ -95,18 +95,22 @@ The server's stdio is a protocol connection; connect it to the MCP client rather
 Bootstrap invokes `scripts/verify-validation-environment.py` with the new virtual environment. It launches an external MCP server over stdio and checks:
 
 1. Python/SDK, CLI, and bundled Arduino CLI versions and relevant hashes;
-2. thirteen discoverable tools and a project created by the real CLI;
-3. native ST content/hash and current-format type inspection;
+2. thirteen discoverable tools and a reference `plc-project` created by the real CLI, seeded with one Program, Function Block, and Function POU, a `.dt` data type, a resource global variable, a cyclic Task with a Program Instance, and a non-empty active-board pin mapping;
+3. read-only inspection of all of the above through every inspection tool, compared against expectations derived from the fixture bytes and files rather than from server responses;
 4. successful real compilation for the configured Runtime v4 target;
-5. exit code 4 for an undeclared identifier introduced through `update_pou`, diagnostic retrieval, and successful compilation after an MCP restore of the valid ST, so every run proves the pinned Editor CLI parses and compiles MCP-written POU content;
-6. materialized C++ and bundle artifacts.
+5. stale-hash `update_pou` rejection leaving the persisted bytes untouched;
+6. exit code 4 for an undeclared identifier introduced through `update_pou`, noise-filtered diagnostic retrieval, and successful compilation after an MCP restore of the valid ST, so every run proves the pinned Editor CLI parses and compiles MCP-written POU content;
+7. POU identity preservation and a full-tree snapshot proving no engineering source outside `build/` changed across the whole flow;
+8. `plc-library` applicability: validation, library overview without an I/O section, and the documented `get_io_configuration` rejection, on the same session;
+9. a syntax-error failure and recovery at a path with spaces and accented characters;
+10. materialized C++ and Runtime v4 bundle artifacts.
 
 Evidence is written under `<root>/evidence/`:
 
 - `validation-pins.json`: the input manifest;
 - numbered command metadata and stdout/stderr logs: installation and build steps;
 - `cli-version.*` and `cli-create.*`: actual CLI responses;
-- `mcp-smoke.json`: exact Python/package versions, tool names, observable calls/results, and generated artifact hashes;
+- `mcp-smoke.json`: exact Python/package versions, tool names, observable calls/results, the expected/observed check list, and generated artifact hashes;
 - `os-packages.txt`: installed host package versions;
 - `bootstrap.json`: verdict, supported-host check, MCP commit/worktree status, sandbox mode, and lock/manifest hashes.
 

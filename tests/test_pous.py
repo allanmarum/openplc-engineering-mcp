@@ -495,6 +495,23 @@ def test_noop_update_keeps_current_diagnostics(tmp_path: Path) -> None:
     assert get_diagnostics(str(project)) == stale
 
 
+def test_rejected_update_preserves_valid_diagnostics(tmp_path: Path) -> None:
+    """A rejected replacement changes no bytes, so still-valid diagnostics survive."""
+    project = make_update_project(tmp_path / "project")
+    stale = ["main.st:1: error: undeclared variable"]
+    compiler._LAST_DIAGNOSTICS[str(project.resolve())] = list(stale)
+    target = project / "pous" / "programs" / "MAIN.st"
+    original = target.read_bytes()
+
+    with pytest.raises(ToolError, match="POU changed since it was read"):
+        update_pou(str(project), "MAIN", MAIN_PROGRAM, "sha256:" + "0" * 64)
+    with pytest.raises(ToolError, match='Replacement POU type does not match target type "program"'):
+        update_pou(str(project), "MAIN", "not a POU declaration", current_hash(project, "MAIN"))
+
+    assert target.read_bytes() == original
+    assert get_diagnostics(str(project)) == stale
+
+
 def test_update_rejects_changed_pou_name(tmp_path: Path) -> None:
     """A replacement declaring a different POU name is rejected and changes nothing."""
     project = make_update_project(tmp_path / "project")
