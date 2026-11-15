@@ -154,6 +154,10 @@ def test_stdio_disconnect_terminates_in_flight_compilation(tmp_path: Path, fake_
     # The client disappears while the compilation is still running.
     assert server.stdin is not None
     server.stdin.close()
-    server.communicate(timeout=60)
+    server.wait(timeout=60)
+    if server.stdout is not None:
+        server.stdout.close()
+    if server.stderr is not None:
+        server.stderr.close()
 
     wait_for_process_exit(_fake_cli_pids(fake_openplc_cli.pids_file))

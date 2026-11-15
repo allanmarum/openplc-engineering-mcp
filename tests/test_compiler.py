@@ -146,7 +146,7 @@ def test_compile_project_diagnostics_preserve_genuine_platform_failures(
 
 
 def test_compile_project_reports_missing_cli_and_invalidates_diagnostics(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, cli_on_path: str
 ) -> None:
     project = make_project(tmp_path / "project")
     compile_success(monkeypatch, project)

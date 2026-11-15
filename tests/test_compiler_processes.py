@@ -68,11 +68,18 @@ def test_abandoned_wait_terminates_the_whole_process_tree(
     interrupted = False
 
     class InterruptiblePopen(subprocess.Popen):
-        """A real process whose first wait is abandoned like an async cancellation."""
+        """A real process whose first wait is abandoned like an async cancellation.
+
+        The wait is only abandoned once the fake CLI tree is provably running,
+        otherwise the cleanup could race ahead of the descendant spawn.
+        """
 
         def communicate(self, input=None, timeout=None):  # noqa: A002 - matches Popen signature
             nonlocal interrupted
             if not interrupted:
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline and not fake_openplc_cli.pids_file.exists():
+                    time.sleep(0.05)
                 interrupted = True
                 raise SimulatedCancellation
             return super().communicate(input, timeout=timeout)
