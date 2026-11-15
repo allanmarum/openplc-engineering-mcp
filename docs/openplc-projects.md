@@ -245,6 +245,8 @@ The MCP validates this operation boundary only. It does not parse or re-serializ
 
 Persistence uses a same-directory temporary file plus `os.replace()` so the original POU is never truncated and a failed update leaves the original bytes unchanged. No backup or history files are written.
 
+The real concurrency guarantee is exact-byte optimistic concurrency, checked twice: the expected hash is verified before staging and again after the temporary file is flushed and `fsync`ed, immediately before replacement. This rejects an update whenever the target's bytes changed since the caller's `read_pou()`, and the replacement becomes visible atomically — a concurrent reader sees either the complete old file or the complete new one, never a partial write. Its limits: there is no cross-process lock, so a writer racing inside the narrow window between the final hash re-check and `os.replace()` can still interleave and last-writer-wins; the guarantee is per file and per operation, not a project-wide transaction; and it cannot stop another process from overwriting the MCP result after the update returns.
+
 Because the target is resolved from its current-format filesystem identity and the expected hash only proves which exact bytes the caller read, a malformed existing ST POU can be repaired by replacing it with a valid same-name/same-type representation.
 
 OpenPLC Editor interaction limitation: the Editor watches POU files but only reloads a POU it considers saved/clean, and an Editor session holding unsaved state can later overwrite an MCP write. `update_pou()` is therefore not a synchronized co-editing workflow; the project should not be actively edited in the OpenPLC Editor at the same time.

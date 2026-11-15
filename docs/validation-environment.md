@@ -98,7 +98,7 @@ Bootstrap invokes `scripts/verify-validation-environment.py` with the new virtua
 2. thirteen discoverable tools and a project created by the real CLI;
 3. native ST content/hash and current-format type inspection;
 4. successful real compilation for the configured Runtime v4 target;
-5. exit code 4 for an introduced undeclared identifier, diagnostic retrieval, and successful compilation after restoring valid ST;
+5. exit code 4 for an undeclared identifier introduced through `update_pou`, diagnostic retrieval, and successful compilation after an MCP restore of the valid ST, so every run proves the pinned Editor CLI parses and compiles MCP-written POU content;
 6. materialized C++ and bundle artifacts.
 
 Evidence is written under `<root>/evidence/`:

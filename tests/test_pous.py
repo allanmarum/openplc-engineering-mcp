@@ -300,7 +300,7 @@ def test_update_declaration_changes_are_visible_to_list_variables(tmp_path: Path
 
 
 def test_read_pou_after_update_returns_replacement_and_new_hash(tmp_path: Path) -> None:
-    """read_pou() after an update returns the replacement and its hash."""
+    """read_pou() after an update returns the replacement, its hash, and unchanged identity."""
     project = make_update_project(tmp_path / "project")
     replacement = "PROGRAM MAIN\nEND_PROGRAM\n"
 
@@ -309,6 +309,10 @@ def test_read_pou_after_update_returns_replacement_and_new_hash(tmp_path: Path) 
     pou = read_pou(str(project), "MAIN")
     assert pou["content"] == replacement
     assert pou["content_hash"] == result["content_hash"]
+    assert pou["name"] == "MAIN"
+    assert pou["type"] == "program"
+    assert pou["language"] == "st"
+    assert pou["path"] == "pous/programs/MAIN.st"
 
 
 def test_update_writes_replacement_exactly_as_provided(tmp_path: Path) -> None:
@@ -365,6 +369,22 @@ def test_update_bom_prefixed_pou_round_trips_without_stripping(tmp_path: Path) -
 
     assert target.read_bytes() == bom_replacement.encode("utf-8")
     assert result["content_hash"] == sha256_token(bom_replacement.encode("utf-8"))
+
+
+def test_update_preserves_accented_utf8_bytes(tmp_path: Path) -> None:
+    """Multibyte UTF-8 content (accents) is persisted byte-for-byte."""
+    project = make_update_project(tmp_path / "project")
+    replacement = (
+        "(* Controle da válvula de aquecimento — ação manual. *)\n"
+        'PROGRAM MAIN\nVAR\n    mensagem : STRING := "Temperatura máxima excedida";\nEND_VAR\n'
+        "END_PROGRAM\n"
+    )
+
+    result = update_pou(str(project), "MAIN", replacement, current_hash(project, "MAIN"))
+
+    target = project / "pous" / "programs" / "MAIN.st"
+    assert target.read_bytes() == replacement.encode("utf-8")
+    assert result["content_hash"] == sha256_token(replacement.encode("utf-8"))
 
 
 def test_update_bom_prefixed_pou_with_documentation(tmp_path: Path) -> None:
