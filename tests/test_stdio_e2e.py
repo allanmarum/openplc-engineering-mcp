@@ -2,11 +2,15 @@
 
 import hashlib
 import json
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import anyio
 import pytest
+from conftest import wait_for_process_exit
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -83,3 +87,77 @@ async def test_stdio_project_round_trip(tmp_path: Path) -> None:
 
     # Reaching here also requires both SDK contexts to finish their shutdown paths.
     assert pou.read_bytes() == replacement.encode("utf-8")
+
+
+def _fake_cli_pids(pids_file: Path) -> list[int]:
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if pids_file.exists():
+            return [int(line) for line in pids_file.read_text(encoding="utf-8").split() if line]
+        time.sleep(0.1)
+    raise AssertionError("fake openplc-cli never reported its process ids")
+
+
+def test_stdio_disconnect_terminates_in_flight_compilation(tmp_path: Path, fake_openplc_cli) -> None:
+    """A client vanishing mid-compilation still gets a bounded, descendant-free shutdown."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "project.json").write_text(
+        json.dumps({"meta": {"name": "Stdio disconnect", "type": "plc-project"}}), encoding="utf-8"
+    )
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([str(fake_openplc_cli.bin_dir), env.get("PATH", "")])
+    env["OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS"] = "3"
+    server = subprocess.Popen(
+        [sys.executable, "-m", "openplc_engineering_mcp.server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        cwd=str(project),
+    )
+
+    def send(message: dict) -> None:
+        assert server.stdin is not None
+        server.stdin.write(json.dumps(message) + "\n")
+        server.stdin.flush()
+
+    send(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "disconnect-probe", "version": "0"},
+            },
+        }
+    )
+    assert server.stdout is not None
+    for _ in range(100):
+        line = server.stdout.readline()
+        assert line, "server exited before completing initialization"
+        if json.loads(line).get("id") == 1:
+            break
+    send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    send(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "compile_project", "arguments": {"project_path": str(project)}},
+        }
+    )
+
+    # The client disappears while the compilation is still running.
+    assert server.stdin is not None
+    server.stdin.close()
+    server.wait(timeout=60)
+    if server.stdout is not None:
+        server.stdout.close()
+    if server.stderr is not None:
+        server.stderr.close()
+
+    wait_for_process_exit(_fake_cli_pids(fake_openplc_cli.pids_file))

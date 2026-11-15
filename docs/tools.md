@@ -401,6 +401,8 @@ It returns:
 
 The command must be available as `openplc-cli` on `PATH`; the executable is resolved through PATH extensions (so the Windows `openplc-cli.cmd` shim is executable), and the process is bounded by a 300-second timeout. A missing executable, an OS error while starting the process, a compilation that exceeds the timeout, or non-JSON non-empty `stdout` is exposed as an MCP tool error.
 
+The timeout defaults to 300 seconds and can be overridden for the server process with the `OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS` environment variable (a positive integer; any other value is an MCP tool error). When the timeout fires — or the CLI wait is abandoned for any other reason, such as request cancellation or client disconnection — the CLI process **and all of its descendants** are terminated (process-group kill on POSIX, `taskkill /T` on Windows), so a stuck compiler tree is never left behind.
+
 Non-empty lines from CLI `stderr` are captured as diagnostics for [`get_diagnostics`](#get_diagnostics), except known-benign Electron platform-log lines — non-fatal Chromium-format lines (`[pid:date/time:LEVEL:source(line)]`) from the observed D-Bus chatter sources `bus.cc` and `object_proxy.cc` — and the editor's user-data scaffolding notices (`File already exists at ...` / `Skipping creation.`). Chromium lines from unknown sources and every `FATAL` line are preserved.
 
 ## `get_diagnostics`
@@ -411,12 +413,14 @@ Input:
 
 Returns the `stderr` lines captured from the project's most recent `compile_project` call, with Electron platform-log and scaffolding noise excluded (see [`compile_project`](#compile_project)).
 
-Diagnostics are intentionally process-local:
+Diagnostics are intentionally process-local and always describe the project's current compiled state:
 
 - they are stored in memory, keyed by the resolved project path;
-- a later compilation of the same project replaces the previous diagnostics;
+- a later completed compilation of the same project replaces the previous diagnostics;
+- a successful `update_pou` that physically replaces a POU drops that project's diagnostics (a byte-identical no-op update does not);
+- a compilation attempt that produces no new result — a missing CLI, a process start failure, or a timeout — also drops the previous diagnostics, so stored lines can never refer to an earlier compile attempt;
 - they are not persisted across server restarts;
-- calling this tool before a compilation for that project raises an MCP tool error.
+- calling this tool when no diagnostics are stored raises an MCP tool error.
 
 An executed compilation with no `stderr` produces an empty list.
 

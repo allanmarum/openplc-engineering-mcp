@@ -8,6 +8,7 @@ import pytest
 from conftest import requires_symlinks
 from mcp.server.mcpserver.exceptions import ToolError
 
+from openplc_engineering_mcp.openplc import compiler
 from openplc_engineering_mcp.openplc.compiler import get_diagnostics
 from openplc_engineering_mcp.openplc.pous import list_pous, read_pou, update_pou
 from openplc_engineering_mcp.openplc.variables import list_variables
@@ -460,15 +461,38 @@ def test_update_does_not_trigger_compilation(tmp_path: Path, monkeypatch) -> Non
     """update_pou() persists without spawning compilation subprocesses."""
     project = make_update_project(tmp_path / "project")
 
-    def forbidden_run(*args, **kwargs):
+    def forbidden_popen(*args, **kwargs):
         raise AssertionError("update_pou must not compile the project")
 
-    monkeypatch.setattr("openplc_engineering_mcp.openplc.compiler.subprocess.run", forbidden_run)
+    monkeypatch.setattr("openplc_engineering_mcp.openplc.compiler.subprocess.Popen", forbidden_popen)
 
     update_pou(str(project), "MAIN", "PROGRAM MAIN\nEND_PROGRAM\n", current_hash(project, "MAIN"))
 
     with pytest.raises(ToolError, match="No compilation diagnostics are available"):
         get_diagnostics(str(project))
+
+
+def test_update_invalidates_cached_diagnostics(tmp_path: Path) -> None:
+    """A physical replacement drops diagnostics from an earlier source state."""
+    project = make_update_project(tmp_path / "project")
+    compiler._LAST_DIAGNOSTICS[str(project.resolve())] = ["main.st:1: error: undeclared variable"]
+
+    update_pou(str(project), "MAIN", "PROGRAM MAIN\nEND_PROGRAM\n", current_hash(project, "MAIN"))
+
+    with pytest.raises(ToolError, match="No compilation diagnostics are available"):
+        get_diagnostics(str(project))
+
+
+def test_noop_update_keeps_current_diagnostics(tmp_path: Path) -> None:
+    """A byte-identical replacement changes no source, so diagnostics stay valid."""
+    project = make_update_project(tmp_path / "project")
+    stale = ["main.st:1: error: undeclared variable"]
+    compiler._LAST_DIAGNOSTICS[str(project.resolve())] = list(stale)
+
+    result = update_pou(str(project), "MAIN", MAIN_PROGRAM, current_hash(project, "MAIN"))
+
+    assert result["content_hash"] == sha256_token(MAIN_PROGRAM.encode("utf-8"))
+    assert get_diagnostics(str(project)) == stale
 
 
 def test_update_rejects_changed_pou_name(tmp_path: Path) -> None:
