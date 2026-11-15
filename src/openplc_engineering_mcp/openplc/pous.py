@@ -11,7 +11,7 @@ from typing import Literal, TypedDict
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from openplc_engineering_mcp.openplc.compiler import invalidate_diagnostics
+from openplc_engineering_mcp.openplc.compiler import invalidate_diagnostics, project_operation_lock
 from openplc_engineering_mcp.openplc.project import is_contained, list_source_files, load_project
 
 PouType = Literal["program", "function-block", "function"]
@@ -256,45 +256,48 @@ def update_pou(
 
     root, _, _ = load_project(project_path)
 
-    matches = _find_pou_matches(root, pou_name)
-    if not matches:
-        raise ToolError(f'POU not found: "{pou_name}"')
-    if len(matches) > 1:
-        raise ToolError(f'Ambiguous POU name: "{pou_name}"')
-    target = matches[0]
+    # Serialize with compilation so a concurrent compile_project call cannot
+    # interleave with the read-check-replace sequence below.
+    with project_operation_lock(root):
+        matches = _find_pou_matches(root, pou_name)
+        if not matches:
+            raise ToolError(f'POU not found: "{pou_name}"')
+        if len(matches) > 1:
+            raise ToolError(f'Ambiguous POU name: "{pou_name}"')
+        target = matches[0]
 
-    if target["language"] != "st":
-        raise ToolError(
-            f'POU language "{target["language"]}" is not supported for update; '
-            "v1 supports Structured Text only"
-        )
+        if target["language"] != "st":
+            raise ToolError(
+                f'POU language "{target["language"]}" is not supported for update; '
+                "v1 supports Structured Text only"
+            )
 
-    lexical_target = root / target["path"]
-    _verify_update_target(root, pou_name, lexical_target)
+        lexical_target = root / target["path"]
+        _verify_update_target(root, pou_name, lexical_target)
 
-    try:
-        current_raw = lexical_target.read_bytes()
-    except OSError as exc:
-        raise ToolError(f'Could not update POU "{pou_name}": {exc}') from exc
-    current_hash = _content_hash(current_raw)
-    if current_hash != expected_content_hash:
-        raise ToolError(
-            f'POU changed since it was read: "{pou_name}"; call read_pou() again before updating'
-        )
+        try:
+            current_raw = lexical_target.read_bytes()
+        except OSError as exc:
+            raise ToolError(f'Could not update POU "{pou_name}": {exc}') from exc
+        current_hash = _content_hash(current_raw)
+        if current_hash != expected_content_hash:
+            raise ToolError(
+                f'POU changed since it was read: "{pou_name}"; call read_pou() again before updating'
+            )
 
-    _validate_st_envelope(content, target["type"], target["name"])
+        _validate_st_envelope(content, target["type"], target["name"])
 
-    try:
-        replacement_raw = content.encode("utf-8")
-    except UnicodeError as exc:
-        raise ToolError("Replacement POU content must be UTF-8 encodable") from exc
+        try:
+            replacement_raw = content.encode("utf-8")
+        except UnicodeError as exc:
+            raise ToolError("Replacement POU content must be UTF-8 encodable") from exc
 
-    new_hash = _content_hash(replacement_raw)
-    if new_hash == current_hash:
+        new_hash = _content_hash(replacement_raw)
+        if new_hash == current_hash:
+            return {"name": pou_name, "content_hash": new_hash}
+
+        _write_pou_atomically(root, pou_name, lexical_target, replacement_raw, expected_content_hash)
+        # The persisted sources changed, so diagnostics from an earlier compilation
+        # no longer describe this project.
+        invalidate_diagnostics(str(root))
         return {"name": pou_name, "content_hash": new_hash}
-
-    _write_pou_atomically(root, pou_name, lexical_target, replacement_raw, expected_content_hash)
-    # The persisted sources changed, so diagnostics from an earlier compilation
-    # no longer describe this project.
-    invalidate_diagnostics(str(root))
-    return {"name": pou_name, "content_hash": new_hash}

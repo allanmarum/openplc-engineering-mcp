@@ -79,6 +79,23 @@ async def verify(root: Path) -> None:
     configuration = json.loads(device.read_text())
     configuration["deviceBoard"] = pins["openplc"]["target"]
     device.write_text(json.dumps(configuration, indent=2) + "\n")
+    # A second project whose parent path carries spaces and accented characters,
+    # seeded with a syntax error for the failure/recovery control below.
+    accented_parent = fixture_parent / "pasta com acentuação"
+    command(
+        "cli-create-accented",
+        ["create", "AcaoSmoke", "--path", str(accented_parent), "--language", "st", "--json"],
+    )
+    accented_project = accented_parent / "AcaoSmoke"
+    accented_device = accented_project / "devices" / "configuration.json"
+    accented_configuration = json.loads(accented_device.read_text())
+    accented_configuration["deviceBoard"] = pins["openplc"]["target"]
+    accented_device.write_text(json.dumps(accented_configuration, indent=2) + "\n")
+    accented_source = accented_project / "pous" / "programs" / "main.st"
+    if not accented_source.is_file():
+        raise RuntimeError("CLI did not create a native ST POU in the accented path")
+    broken_source = "PROGRAM main\nVAR\n    value : INT := 0;\nEND_VAR\nvalue := ;\nEND_PROGRAM\n"
+    accented_source.write_text(broken_source)
     source = project / "pous" / "programs" / "main.st"
     if not source.is_file():
         raise RuntimeError("CLI did not create a native ST POU")
@@ -91,7 +108,7 @@ async def verify(root: Path) -> None:
     server = StdioServerParameters(
         command=str(root / "mcp-venv" / "bin" / "openplc-engineering-mcp"), cwd=REPO, env=dict(os.environ)
     )
-    with anyio.fail_after(240):
+    with anyio.fail_after(480):
         async with stdio_client(server) as streams:
             async with ClientSession(*streams) as session:
                 await session.initialize()
@@ -140,6 +157,34 @@ async def verify(root: Path) -> None:
                 recovered = await call("compile_project")
                 if not recovered["success"]:
                     raise RuntimeError("Compilation did not recover after restoring valid ST")
+
+                # Syntax-failure and recovery control at a path with spaces and
+                # accented characters (distinct from the undeclared-reference
+                # control above).
+                syntax_bad = await call("compile_project", project_path=str(accented_project))
+                if syntax_bad["success"]:
+                    raise RuntimeError("Syntax-error control unexpectedly compiled")
+                syntax_diagnostics = await call(
+                    "get_diagnostics", project_path=str(accented_project)
+                )
+                if not syntax_diagnostics:
+                    raise RuntimeError("Syntax-error compilation captured no diagnostics")
+                broken_read = await call(
+                    "read_pou", project_path=str(accented_project), pou_name="main"
+                )
+                corrected = "PROGRAM main\nVAR\n    value : INT := 0;\nEND_VAR\nvalue := 1;\nEND_PROGRAM\n"
+                await call(
+                    "update_pou",
+                    project_path=str(accented_project),
+                    pou_name="main",
+                    content=corrected,
+                    expected_content_hash=broken_read["content_hash"],
+                )
+                accented_recovery = await call(
+                    "compile_project", project_path=str(accented_project)
+                )
+                if not accented_recovery["success"]:
+                    raise RuntimeError("Accented-path project did not compile after correction")
     build = project / "build" / pins["openplc"]["target"]
     artifacts = {str(p.relative_to(project)): digest(p) for p in sorted(build.rglob("*")) if p.is_file()}
     if not any(name.endswith(".cpp") for name in artifacts):

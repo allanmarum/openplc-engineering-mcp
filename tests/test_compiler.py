@@ -1,11 +1,16 @@
+import hashlib
 import json
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
+from openplc_engineering_mcp.openplc import compiler
 from openplc_engineering_mcp.openplc.compiler import compile_project, get_diagnostics
+from openplc_engineering_mcp.openplc.pous import UpdatePouResult, update_pou
 
 FAKE_CLI = "/resolved/openplc-cli"
 
@@ -16,6 +21,16 @@ def make_project(root: Path) -> Path:
         json.dumps({"meta": {"name": "Example", "type": "plc-project"}}), encoding="utf-8"
     )
     return root
+
+
+def stub_process_termination(monkeypatch) -> None:
+    """Keep unit tests away from the real kill/reap syscalls.
+
+    The stub processes below carry a fake pid, so real termination helpers must
+    never run against them; descendant cleanup is covered by real-process tests.
+    """
+    monkeypatch.setattr(compiler, "_terminate_process_tree", lambda process: None)
+    monkeypatch.setattr(compiler, "_reap_terminated", lambda process: None)
 
 
 @pytest.fixture
@@ -46,6 +61,7 @@ def install_cli(
         def __init__(self, args: list[str], **kwargs) -> None:
             calls.append(args)
             self.args = args
+            self.pid = 0
             self.returncode = 0
 
         def communicate(self, input=None, timeout=None):  # noqa: A002 - matches Popen signature
@@ -64,6 +80,7 @@ def install_cli(
         return StubProcess(args, **kwargs)
 
     monkeypatch.setattr("openplc_engineering_mcp.openplc.compiler.subprocess.Popen", stub_popen)
+    stub_process_termination(monkeypatch)
     return calls, timeouts
 
 
@@ -240,5 +257,138 @@ def test_compile_project_resolves_cli_through_path_extensions(
 def test_get_diagnostics_requires_compilation(tmp_path: Path) -> None:
     project = make_project(tmp_path / "project")
 
+    with pytest.raises(ToolError, match="No compilation diagnostics are available"):
+        get_diagnostics(str(project))
+
+
+class _GatedProcess:
+    """A stub CLI whose first run blocks until the test releases it."""
+
+    def __init__(self) -> None:
+        self.pid = 0
+        self.returncode = 0
+
+    def communicate(self, input=None, timeout=None):  # noqa: A002 - matches Popen signature
+        return '{"ok": 1}', ""
+
+
+def install_gated_cli(monkeypatch, *, first_release: threading.Event) -> list[str]:
+    """Install a stub CLI that reports entry/exit order and gates the first run."""
+    order: list[str] = []
+    gate_consumed = threading.Event()
+
+    class GatedProcess(_GatedProcess):
+        def __init__(self, args: list[str], **kwargs) -> None:
+            super().__init__()
+
+        def communicate(self, input=None, timeout=None):  # noqa: A002 - matches Popen signature
+            order.append("enter")
+            if not gate_consumed.is_set():
+                gate_consumed.set()
+                assert first_release.wait(10), "test never released the first compilation"
+            order.append("exit")
+            return '{"ok": 1}', ""
+
+    monkeypatch.setattr("openplc_engineering_mcp.openplc.compiler.subprocess.Popen", GatedProcess)
+    stub_process_termination(monkeypatch)
+    return order
+
+
+def test_simultaneous_compilations_of_one_project_are_serialized(
+    tmp_path: Path, monkeypatch, cli_on_path: str
+) -> None:
+    project = make_project(tmp_path / "project")
+    release = threading.Event()
+    order = install_gated_cli(monkeypatch, first_release=release)
+
+    first = threading.Thread(target=lambda: compile_project(str(project)))
+    first.start()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not order:
+        time.sleep(0.02)
+    assert order == ["enter"], "first compilation never started"
+
+    second = threading.Thread(target=lambda: compile_project(str(project)))
+    second.start()
+    time.sleep(0.5)
+    assert order == ["enter"], f"second compilation interleaved with the first: {order}"
+
+    release.set()
+    first.join(10)
+    second.join(10)
+    assert order == ["enter", "exit", "enter", "exit"]
+    # The latest completed compilation owns the diagnostics.
+    assert get_diagnostics(str(project)) == []
+
+
+def test_different_projects_compile_concurrently(
+    tmp_path: Path, monkeypatch, cli_on_path: str
+) -> None:
+    first_project = make_project(tmp_path / "first")
+    second_project = make_project(tmp_path / "second")
+    release = threading.Event()
+    order = install_gated_cli(monkeypatch, first_release=release)
+
+    first = threading.Thread(target=lambda: compile_project(str(first_project)))
+    first.start()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not order:
+        time.sleep(0.02)
+
+    second = threading.Thread(target=lambda: compile_project(str(second_project)))
+    second.start()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and order.count("enter") < 2:
+        time.sleep(0.02)
+    # The second project's compilation runs (and may finish) while the first is
+    # still blocked inside its own compilation.
+    assert order.count("enter") == 2, f"projects did not compile concurrently: {order}"
+
+    release.set()
+    first.join(10)
+    second.join(10)
+    assert order.count("exit") == 2
+
+
+def test_update_pou_waits_for_in_flight_compilation(
+    tmp_path: Path, monkeypatch, cli_on_path: str
+) -> None:
+    project = make_project(tmp_path / "project")
+    pou_dir = project / "pous" / "programs"
+    pou_dir.mkdir(parents=True)
+    source = b"PROGRAM MAIN\nEND_PROGRAM\n"
+    pou = pou_dir / "MAIN.st"
+    pou.write_bytes(source)
+    source_hash = "sha256:" + hashlib.sha256(source).hexdigest()
+    install_cli(monkeypatch, returncode=0, stdout='{"ok": true}', stderr="")
+    compile_project(str(project))
+    assert get_diagnostics(str(project)) == []
+
+    release = threading.Event()
+    install_gated_cli(monkeypatch, first_release=release)
+    compiling = threading.Thread(target=lambda: compile_project(str(project)))
+    compiling.start()
+    deadline = time.monotonic() + 10
+    lock = compiler.project_operation_lock(project.resolve())
+    while time.monotonic() < deadline and not lock.locked():
+        time.sleep(0.02)
+
+    replacement = "PROGRAM MAIN\n    (* updated *)\nEND_PROGRAM\n"
+    updated: list[UpdatePouResult] = []
+    updating = threading.Thread(
+        target=lambda: updated.append(update_pou(str(project), "MAIN", replacement, source_hash))
+    )
+    updating.start()
+    time.sleep(0.5)
+    assert pou.read_bytes() == source, "update_pou replaced bytes during a compilation"
+    assert not updated, "update_pou finished during a compilation"
+
+    release.set()
+    compiling.join(10)
+    updating.join(10)
+    assert updated and updated[0]["content_hash"] == (
+        "sha256:" + hashlib.sha256(replacement.encode("utf-8")).hexdigest()
+    )
+    # The physical replacement invalidated the concurrent compilation's diagnostics.
     with pytest.raises(ToolError, match="No compilation diagnostics are available"):
         get_diagnostics(str(project))
