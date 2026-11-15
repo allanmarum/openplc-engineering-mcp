@@ -23,3 +23,23 @@ jobs:
       - run: uv run pyright
       - run: uv run pytest
       - run: uv build
+
+  wheel-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.6"
+          python-version: "3.12.14"
+          enable-cache: true
+      - run: uv build
+      - name: Install the built wheel into a clean environment
+        run: |
+          uv venv --python 3.12.14 "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" dist/*.whl
+      - name: Smoke the installed console command over stdio
+        run: >
+          "$RUNNER_TEMP/wheel-venv/bin/python" scripts/smoke-installed-server.py
+          --command "$RUNNER_TEMP/wheel-venv/bin/openplc-engineering-mcp"
