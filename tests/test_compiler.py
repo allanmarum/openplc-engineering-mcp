@@ -48,10 +48,10 @@ def install_cli(
             self.args = args
             self.returncode = 0
 
-        def communicate(self, timeout=None):
+        def communicate(self, input=None, timeout=None):  # noqa: A002 - matches Popen signature
             timeouts.append(timeout)
             if hang:
-                raise subprocess.TimeoutExpired(self.args, timeout)
+                raise subprocess.TimeoutExpired(self.args, timeout if timeout is not None else 0)
             self.returncode = returncode
             return stdout, stderr
 

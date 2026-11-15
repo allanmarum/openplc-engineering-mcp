@@ -79,17 +79,21 @@ def _terminate_process_tree(process: subprocess.Popen) -> None:
 
 def _run_cli(executable: str, root: Path, timeout: int) -> tuple[int, str, str]:
     """Run one bounded CLI compilation, leaving no descendants alive on any exit path."""
-    popen_kwargs: dict[str, bool] = {}
-    if os.name != "nt":
-        popen_kwargs["start_new_session"] = True
+    command = [executable, "compile", str(root), "--json"]
     try:
-        process = subprocess.Popen(
-            [executable, "compile", str(root), "--json"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            **popen_kwargs,
-        )
+        if os.name == "nt":
+            process = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+        else:
+            # A dedicated session makes the CLI process group killable as a whole.
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
     except FileNotFoundError as exc:
         raise ToolError("openplc-cli was not found on PATH") from exc
     except OSError as exc:
