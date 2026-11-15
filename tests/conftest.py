@@ -44,17 +44,46 @@ time.sleep(120)
 @pytest.fixture
 def fake_openplc_cli(tmp_path: Path, monkeypatch) -> SimpleNamespace:
     """Install a hanging fake openplc-cli that reports its whole process tree."""
-    bin_dir = tmp_path / "cli-bin"
+    return _install_fake_cli(monkeypatch, tmp_path, "cli-bin", FAKE_CLI_IMPL)
+
+
+# A launcher fake openplc-cli: it spawns a long-lived descendant that inherits its
+# stdout/stderr pipes and exits immediately, so the pipes stay open (blocking a
+# naive communicate) while the process-tree root is already gone.
+LAUNCHER_CLI_IMPL = """import os
+import subprocess
+import sys
+
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(120)"],
+    stdin=subprocess.DEVNULL,
+    close_fds=False,
+)
+with open(os.environ["FAKE_OPENPLC_CLI_PIDS"], "a", encoding="utf-8") as handle:
+    handle.write(f"{os.getpid()}\\n{child.pid}\\n")
+"""
+
+
+@pytest.fixture
+def fake_openplc_cli_launcher(tmp_path: Path, monkeypatch) -> SimpleNamespace:
+    """Install a fake openplc-cli that exits and leaves a pipe-holding descendant."""
+    return _install_fake_cli(monkeypatch, tmp_path, "launcher-cli-bin", LAUNCHER_CLI_IMPL)
+
+
+def _install_fake_cli(
+    monkeypatch, tmp_path: Path, bin_dir_name: str, impl_source: str
+) -> SimpleNamespace:
+    bin_dir = tmp_path / bin_dir_name
     bin_dir.mkdir()
-    pids_file = tmp_path / "fake-cli-pids.txt"
+    pids_file = tmp_path / f"{bin_dir_name}-pids.txt"
     if os.name == "nt":
         impl = bin_dir / "cli_impl.py"
-        impl.write_text(FAKE_CLI_IMPL, encoding="utf-8")
+        impl.write_text(impl_source, encoding="utf-8")
         executable = bin_dir / "openplc-cli.cmd"
         executable.write_text(f'@"{sys.executable}" "{impl}" %*\n', encoding="utf-8")
     else:
         executable = bin_dir / "openplc-cli"
-        executable.write_text(f"#!{sys.executable}\n" + FAKE_CLI_IMPL, encoding="utf-8")
+        executable.write_text(f"#!{sys.executable}\n" + impl_source, encoding="utf-8")
         executable.chmod(0o755)
     monkeypatch.setenv("FAKE_OPENPLC_CLI_PIDS", str(pids_file))
     return SimpleNamespace(path=executable, bin_dir=bin_dir, pids_file=pids_file)

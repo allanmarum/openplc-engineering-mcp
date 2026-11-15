@@ -167,8 +167,10 @@ There are no service, repository, adapter, client, project-version resolver, or 
 
 Most behavior is stateless. The only current process state is the latest compiler diagnostics stored by `openplc/compiler.py` for each resolved project path. This state is replaced by a later completed compilation of the same project, and dropped when `openplc/pous.py` physically replaces a POU or when a compilation attempt produces no new result; it disappears when the server process stops.
 
+Alongside the diagnostics, `openplc/compiler.py` keeps one lock per resolved project path. `compile_project` (executed as a cancellable async tool whose CLI runs in a worker thread) and `update_pou` hold that lock for their duration, so same-project compilations and POU replacements serialize and the latest completed compilation deterministically owns the stored diagnostics. Read-only tools take no lock, and different projects never share one.
+
 ## Transport
 
 The current transport is stdio through the official MCP Python SDK.
 
-HTTP transport, authentication, deployment, and runtime control are outside the current implementation boundary. See [`scope.md`](scope.md).
+The SDK executes synchronous tools on worker threads it will not interrupt, so `compile_project` is registered as an async tool: it awaits the CLI worker thread in a cancellable way and terminates the CLI process tree when the request is cancelled or the client disconnects, instead of leaving the compilation running until the timeout. HTTP transport, authentication, deployment, and runtime control are outside the current implementation boundary. See [`scope.md`](scope.md).

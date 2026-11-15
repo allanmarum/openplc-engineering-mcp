@@ -4,7 +4,7 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from openplc_engineering_mcp.openplc.compiler import CompileResult
-from openplc_engineering_mcp.openplc.compiler import compile_project as compile_openplc_project
+from openplc_engineering_mcp.openplc.compiler import compile_project_async as compile_openplc_project
 from openplc_engineering_mcp.openplc.compiler import get_diagnostics as read_compile_diagnostics
 from openplc_engineering_mcp.openplc.datatypes import DataTypeInfo
 from openplc_engineering_mcp.openplc.datatypes import list_datatypes as inspect_datatypes
@@ -115,9 +115,15 @@ def validate_project(project_path: str) -> ProjectValidation:
 
 
 @mcp.tool(annotations=_LOCAL_WRITE)
-def compile_project(project_path: str) -> CompileResult:
-    """Compile an OpenPLC project using openplc-cli."""
-    return compile_openplc_project(project_path)
+async def compile_project(project_path: str) -> CompileResult:
+    """Compile an OpenPLC project using openplc-cli.
+
+    The CLI runs in a worker thread with the documented timeout. If the request
+    is cancelled or the client disconnects, the CLI process tree is terminated
+    promptly instead of running to the timeout. Compilations and POU updates on
+    the same project are serialized.
+    """
+    return await compile_openplc_project(project_path)
 
 
 @mcp.tool(annotations=_READ_ONLY)

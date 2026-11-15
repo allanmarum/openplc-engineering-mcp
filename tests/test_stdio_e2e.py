@@ -3,8 +3,10 @@
 import hashlib
 import json
 import os
+import queue
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -98,51 +100,165 @@ def _fake_cli_pids(pids_file: Path) -> list[int]:
     raise AssertionError("fake openplc-cli never reported its process ids")
 
 
-def test_stdio_disconnect_terminates_in_flight_compilation(tmp_path: Path, fake_openplc_cli) -> None:
-    """A client vanishing mid-compilation still gets a bounded, descendant-free shutdown."""
+class _RawStdioSession:
+    """Drive one server process with raw JSON-RPC lines and a background reader."""
+
+    def __init__(self, command: list[str], env: dict[str, str], cwd: Path) -> None:
+        self.process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            cwd=str(cwd),
+        )
+        self.lines: queue.Queue[str] = queue.Queue()
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+
+    def _read(self) -> None:
+        stdout = self.process.stdout
+        assert stdout is not None
+        for line in stdout:
+            self.lines.put(line)
+        stdout.close()
+
+    def send(self, message: dict) -> None:
+        stdin = self.process.stdin
+        assert stdin is not None
+        stdin.write(json.dumps(message) + "\n")
+        stdin.flush()
+
+    def next_message(self, timeout: float) -> dict | None:
+        try:
+            return json.loads(self.lines.get(timeout=timeout))
+        except queue.Empty:
+            return None
+
+    def initialize(self) -> None:
+        self.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "lifecycle-probe", "version": "0"},
+                },
+            }
+        )
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            message = self.next_message(1)
+            if message is not None and message.get("id") == 1:
+                break
+        else:
+            raise AssertionError("server never answered initialize")
+        self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    def close_stdin_and_wait(self, timeout: float) -> float:
+        started = time.monotonic()
+        assert self.process.stdin is not None
+        self.process.stdin.close()
+        self.process.wait(timeout=timeout)
+        if self.process.stderr is not None:
+            self.process.stderr.close()
+        return time.monotonic() - started
+
+
+def _server_env(fake_openplc_cli, timeout_seconds: str) -> dict[str, str]:
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([str(fake_openplc_cli.bin_dir), env.get("PATH", "")])
+    env["OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS"] = timeout_seconds
+    return env
+
+
+def test_stdio_cancellation_terminates_in_flight_compilation(
+    tmp_path: Path, fake_openplc_cli
+) -> None:
+    """A real notifications/cancelled stops the compile tree promptly.
+
+    The compile timeout is 120 seconds, so the CLI tree dying (and the session
+    staying usable) can only be explained by the cancellation path, never by
+    waiting out the timeout. The project path also carries a space and accented
+    characters through the whole boundary.
+    """
+    project = tmp_path / "projeto ação"
+    project.mkdir()
+    (project / "project.json").write_text(
+        json.dumps({"meta": {"name": "Stdio cancel", "type": "plc-project"}}), encoding="utf-8"
+    )
+    session = _RawStdioSession(
+        [sys.executable, "-m", "openplc_engineering_mcp.server"],
+        _server_env(fake_openplc_cli, "120"),
+        tmp_path,
+    )
+    try:
+        session.initialize()
+        session.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "compile_project", "arguments": {"project_path": str(project)}},
+            }
+        )
+        pids = _fake_cli_pids(fake_openplc_cli.pids_file)
+
+        # Cancel the in-flight request and give the server time to answer wrongly.
+        session.send({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 2}})
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            message = session.next_message(1)
+            assert message is None or message.get("id") != 2, "cancelled request was answered"
+
+        # The abandoned CLI tree dies within the interruption bound, not the timeout.
+        wait_for_process_exit(pids, timeout=30)
+
+        # The same connection keeps serving unrelated tools afterwards.
+        session.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "validate_project", "arguments": {"project_path": str(project)}},
+            }
+        )
+        recovered = None
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            recovered = session.next_message(1)
+            if recovered is not None and recovered.get("id") == 3:
+                break
+        assert recovered is not None and recovered.get("id") == 3
+        assert not recovered["result"]["isError"]
+    finally:
+        elapsed = session.close_stdin_and_wait(timeout=30)
+        assert elapsed < 30, f"server shutdown took {elapsed:.1f}s"
+
+
+def test_stdio_disconnect_terminates_in_flight_compilation(
+    tmp_path: Path, fake_openplc_cli
+) -> None:
+    """A client vanishing mid-compilation still gets a bounded, descendant-free shutdown.
+
+    With a 120-second compile timeout, a prompt exit proves the disconnect path
+    terminates the compilation instead of waiting for the timeout to fire.
+    """
     project = tmp_path / "project"
     project.mkdir()
     (project / "project.json").write_text(
         json.dumps({"meta": {"name": "Stdio disconnect", "type": "plc-project"}}), encoding="utf-8"
     )
-    env = dict(os.environ)
-    env["PATH"] = os.pathsep.join([str(fake_openplc_cli.bin_dir), env.get("PATH", "")])
-    env["OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS"] = "3"
-    server = subprocess.Popen(
+    session = _RawStdioSession(
         [sys.executable, "-m", "openplc_engineering_mcp.server"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=env,
-        cwd=str(project),
+        _server_env(fake_openplc_cli, "120"),
+        project,
     )
-
-    def send(message: dict) -> None:
-        assert server.stdin is not None
-        server.stdin.write(json.dumps(message) + "\n")
-        server.stdin.flush()
-
-    send(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "disconnect-probe", "version": "0"},
-            },
-        }
-    )
-    assert server.stdout is not None
-    for _ in range(100):
-        line = server.stdout.readline()
-        assert line, "server exited before completing initialization"
-        if json.loads(line).get("id") == 1:
-            break
-    send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-    send(
+    session.initialize()
+    session.send(
         {
             "jsonrpc": "2.0",
             "id": 2,
@@ -150,14 +266,10 @@ def test_stdio_disconnect_terminates_in_flight_compilation(tmp_path: Path, fake_
             "params": {"name": "compile_project", "arguments": {"project_path": str(project)}},
         }
     )
+    pids = _fake_cli_pids(fake_openplc_cli.pids_file)
 
     # The client disappears while the compilation is still running.
-    assert server.stdin is not None
-    server.stdin.close()
-    server.wait(timeout=60)
-    if server.stdout is not None:
-        server.stdout.close()
-    if server.stderr is not None:
-        server.stderr.close()
+    elapsed = session.close_stdin_and_wait(timeout=45)
+    assert elapsed < 45, f"server waited {elapsed:.1f}s after disconnect; timeout is 120s"
 
-    wait_for_process_exit(_fake_cli_pids(fake_openplc_cli.pids_file))
+    wait_for_process_exit(pids)
