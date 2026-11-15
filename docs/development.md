@@ -16,6 +16,8 @@ Run the test suite:
 uv run pytest
 ```
 
+Collection is pinned to `tests/` (`testpaths` in `pyproject.toml`), and `tmp/` is git-ignored scratch space, so scratch copies of test modules outside `tests/` never collide with the real suite.
+
 Run linting:
 
 ```bash

@@ -38,3 +38,6 @@ pythonVersion = "3.12"
 reportMissingImports = true
 venvPath = "."
 venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
