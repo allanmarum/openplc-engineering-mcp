@@ -17,6 +17,7 @@ from pathlib import Path
 import anyio
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import TextContent
 
 SOURCE = "PROGRAM MAIN\nEND_PROGRAM\n"
 REPLACEMENT = "PROGRAM MAIN\n    (* updated by the installed server *)\nEND_PROGRAM\n"
@@ -36,7 +37,11 @@ async def smoke(command: str, project: Path) -> None:
 
     async def call(name: str, arguments: dict) -> tuple[object, object | None, list[str]]:
         result = await session.call_tool(name, arguments)
-        text = [item.text for item in result.content if hasattr(item, "text")]
+        text = [
+            TextContent.model_validate(item).text
+            for item in result.content
+            if isinstance(item, TextContent)
+        ]
         return result.is_error, result.structured_content, text
 
     # The server runs from an unrelated working directory; only the console
@@ -64,7 +69,7 @@ async def smoke(command: str, project: Path) -> None:
                 is_error, payload, _ = await call(
                     "read_pou", {"project_path": str(project), "pou_name": "MAIN"}
                 )
-                if is_error or payload is None or payload["content"] != SOURCE:
+                if is_error or not isinstance(payload, dict) or payload["content"] != SOURCE:
                     raise RuntimeError(f"read_pou failed: {payload}")
                 if payload["content_hash"] != sha256_token(SOURCE.encode()):
                     raise RuntimeError(f"read_pou hash mismatch: {payload}")
@@ -87,7 +92,7 @@ async def smoke(command: str, project: Path) -> None:
                 is_error, payload, _ = await call(
                     "read_pou", {"project_path": str(project), "pou_name": "MAIN"}
                 )
-                if is_error or payload is None or payload["content"] != REPLACEMENT:
+                if is_error or not isinstance(payload, dict) or payload["content"] != REPLACEMENT:
                     raise RuntimeError(f"reread failed: {payload}")
 
     if pou.read_bytes() != REPLACEMENT.encode():

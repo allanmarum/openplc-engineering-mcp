@@ -16,6 +16,7 @@ from pathlib import Path
 import anyio
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import TextContent
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -304,7 +305,12 @@ async def verify(root: Path) -> None:
                     if not result.is_error:
                         raise RuntimeError(f"MCP {name} unexpectedly succeeded: {result.content}")
                     text = next(
-                        (item.text for item in result.content if hasattr(item, "text")), ""
+                        (
+                            TextContent.model_validate(item).text
+                            for item in result.content
+                            if isinstance(item, TextContent)
+                        ),
+                        "",
                     )
                     if match not in text:
                         raise RuntimeError(f"MCP {name} error did not mention {match!r}: {text}")
@@ -470,9 +476,9 @@ async def verify(root: Path) -> None:
                 syntax_bad = await call("compile_project", project_path=str(accented_project))
                 if syntax_bad["success"]:
                     raise RuntimeError("Syntax-error control unexpectedly compiled")
-                syntax_diagnostics = await call(
-                    "get_diagnostics", project_path=str(accented_project)
-                )["result"]
+                syntax_diagnostics = (await call("get_diagnostics", project_path=str(accented_project)))[
+                    "result"
+                ]
                 if not syntax_diagnostics:
                     raise RuntimeError("Syntax-error compilation captured no diagnostics")
                 checks.append(
