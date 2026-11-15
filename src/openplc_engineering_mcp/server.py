@@ -122,7 +122,7 @@ def compile_project(project_path: str) -> CompileResult:
 
 @mcp.tool(annotations=_READ_ONLY)
 def get_diagnostics(project_path: str) -> list[str]:
-    """Return diagnostics from the project's most recent compilation."""
+    """Return diagnostics from the project's most recent completed compilation."""
     return read_compile_diagnostics(project_path)
 
 

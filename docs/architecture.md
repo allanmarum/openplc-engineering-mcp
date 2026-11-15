@@ -153,7 +153,7 @@ openplc.overview ──► openplc.project, openplc.pous, openplc.datatypes,
                     openplc.variables, openplc.execution, openplc.io
 openplc.execution ─► openplc.project
 openplc.io ─────────► openplc.project
-openplc.pous ──────► openplc.project
+openplc.pous ──────► openplc.project, openplc.compiler
 openplc.variables ─► openplc.pous, openplc.project
 openplc.datatypes ─► openplc.project
 openplc.compiler ──► openplc.project
@@ -165,7 +165,7 @@ There are no service, repository, adapter, client, project-version resolver, or 
 
 ## State
 
-Most behavior is stateless. The only current process state is the latest compiler diagnostics stored by `openplc/compiler.py` for each resolved project path. This state is replaced by a later compilation of the same project and disappears when the server process stops.
+Most behavior is stateless. The only current process state is the latest compiler diagnostics stored by `openplc/compiler.py` for each resolved project path. This state is replaced by a later completed compilation of the same project, and dropped when `openplc/pous.py` physically replaces a POU or when a compilation attempt produces no new result; it disappears when the server process stops.
 
 ## Transport
 

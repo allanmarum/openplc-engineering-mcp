@@ -11,6 +11,7 @@ from typing import Literal, TypedDict
 
 from mcp.server.mcpserver.exceptions import ToolError
 
+from openplc_engineering_mcp.openplc.compiler import invalidate_diagnostics
 from openplc_engineering_mcp.openplc.project import is_contained, list_source_files, load_project
 
 PouType = Literal["program", "function-block", "function"]
@@ -293,4 +294,7 @@ def update_pou(
         return {"name": pou_name, "content_hash": new_hash}
 
     _write_pou_atomically(root, pou_name, lexical_target, replacement_raw, expected_content_hash)
+    # The persisted sources changed, so diagnostics from an earlier compilation
+    # no longer describe this project.
+    invalidate_diagnostics(str(root))
     return {"name": pou_name, "content_hash": new_hash}
