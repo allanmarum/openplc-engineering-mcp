@@ -12,7 +12,7 @@ from pathlib import Path
 
 import anyio
 import pytest
-from conftest import wait_for_process_exit
+from conftest import wait_for_cli_invocations, wait_for_process_exit
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -273,3 +273,125 @@ def test_stdio_disconnect_terminates_in_flight_compilation(
     assert elapsed < 45, f"server waited {elapsed:.1f}s after disconnect; timeout is 120s"
 
     wait_for_process_exit(pids)
+
+
+def _gated_server_env(gated_openplc_cli) -> dict[str, str]:
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([str(gated_openplc_cli.bin_dir), env.get("PATH", "")])
+    env["OPENPLC_MCP_COMPILE_TIMEOUT_SECONDS"] = "120"
+    return env
+
+
+def _await_response(session: _RawStdioSession, request_id: int, timeout: float = 15) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        message = session.next_message(1)
+        if message is not None and message.get("id") == request_id:
+            return message
+    raise AssertionError(f"server never answered request {request_id}")
+
+
+def _invocation_count(invocations_file: Path) -> int:
+    if not invocations_file.exists():
+        return 0
+    return len([line for line in invocations_file.read_text(encoding="utf-8").split() if line])
+
+
+def test_stdio_cancelled_lock_wait_never_compiles_and_serialization_holds(
+    tmp_path: Path, gated_openplc_cli
+) -> None:
+    """A notifications/cancelled for a request still waiting for the project lock.
+
+    The first compilation holds the project lock inside the gated CLI, so the
+    second request can only be waiting for it. Cancelling that request must end
+    the wait without answering it and without ever spawning a second CLI, while
+    the first compilation completes undisturbed and keeps diagnostics ownership.
+    """
+    project = tmp_path / "projeto"
+    project.mkdir()
+    (project / "project.json").write_text(
+        json.dumps({"meta": {"name": "Stdio wait cancel", "type": "plc-project"}}), encoding="utf-8"
+    )
+    session = _RawStdioSession(
+        [sys.executable, "-m", "openplc_engineering_mcp.server"],
+        _gated_server_env(gated_openplc_cli),
+        tmp_path,
+    )
+    try:
+        session.initialize()
+        session.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "compile_project", "arguments": {"project_path": str(project)}},
+            }
+        )
+        wait_for_cli_invocations(gated_openplc_cli.invocations_file, count=1)
+
+        # A second compilation of the same project can only be waiting for the lock.
+        session.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "compile_project", "arguments": {"project_path": str(project)}},
+            }
+        )
+        time.sleep(0.5)
+        session.send(
+            {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 3}}
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            message = session.next_message(1)
+            assert message is None or message.get("id") != 3, "cancelled waiting request was answered"
+
+        # The cancelled request never spawned its own CLI; the first compile finishes.
+        gated_openplc_cli.release_file.touch()
+        finished = _await_response(session, 2)
+        assert not finished["result"]["isError"]
+        assert finished["result"]["structuredContent"] == {
+            "success": True,
+            "exit_code": 0,
+            "output": {"ok": True},
+        }
+        assert _invocation_count(gated_openplc_cli.invocations_file) == 1
+
+        session.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "get_diagnostics", "arguments": {"project_path": str(project)}},
+            }
+        )
+        diagnostics = _await_response(session, 4)
+        assert not diagnostics["result"]["isError"]
+        assert diagnostics["result"]["structuredContent"] == {
+            "result": ["main.st:1: error: gated compile diagnostic"]
+        }
+    finally:
+        elapsed = session.close_stdin_and_wait(timeout=30)
+        assert elapsed < 30, f"server shutdown took {elapsed:.1f}s"
+
+    # Diagnostics are process-local: a restarted server starts with none stored.
+    restarted = _RawStdioSession(
+        [sys.executable, "-m", "openplc_engineering_mcp.server"],
+        _gated_server_env(gated_openplc_cli),
+        tmp_path,
+    )
+    try:
+        restarted.initialize()
+        restarted.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "tools/call",
+                "params": {"name": "get_diagnostics", "arguments": {"project_path": str(project)}},
+            }
+        )
+        answer = _await_response(restarted, 9)
+        assert answer["result"]["isError"]
+    finally:
+        restarted.close_stdin_and_wait(timeout=30)
