@@ -280,6 +280,8 @@ Optimistic concurrency:
 - it is normally the `content_hash` returned by the `read_pou()` the edit is based on;
 - a stale or malformed hash rejects the update and leaves the target unchanged.
 
+The exact guarantee and its residual limits — no cross-process locking, and the race window between the final hash re-check and the atomic replacement — are detailed in [`openplc-projects.md`](openplc-projects.md#pou-update).
+
 Update-time POU resolution is stricter than the read/list tools. If more than one recognized current-format source file shares the requested stem, the update is rejected as ambiguous instead of silently choosing one.
 
 Existing POUs in other languages (`il`, `ld`, `fbd`, `python`, `cpp`) remain readable through the read tools but are rejected by `update_pou` before any mutation.

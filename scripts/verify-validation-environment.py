@@ -118,12 +118,25 @@ async def verify(root: Path) -> None:
                     raise RuntimeError(f"Real OpenPLC compilation failed: {good}")
                 if good["output"].get("target") != pins["openplc"]["target"]:
                     raise RuntimeError("Wrong real compiler target")
-                source.write_text(content.replace("counter :=", "missingCounter :="))
+                broken = content.replace("counter :=", "missingCounter :=")
+                updated = await call(
+                    "update_pou",
+                    pou_name="main",
+                    content=broken,
+                    expected_content_hash=pou["content_hash"],
+                )
+                if digest(source) != updated["content_hash"].removeprefix("sha256:"):
+                    raise RuntimeError("update_pou did not persist the broken replacement")
                 bad = await call("compile_project")
                 if bad["success"] or bad["exit_code"] != 4:
                     raise RuntimeError("Negative control did not produce a real compile failure")
                 await call("get_diagnostics")
-                source.write_text(content)
+                await call(
+                    "update_pou",
+                    pou_name="main",
+                    content=content,
+                    expected_content_hash=updated["content_hash"],
+                )
                 recovered = await call("compile_project")
                 if not recovered["success"]:
                     raise RuntimeError("Compilation did not recover after restoring valid ST")
