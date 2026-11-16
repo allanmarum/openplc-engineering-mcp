@@ -62,7 +62,7 @@ This exact boundary — an external client process, real stdio, the installed co
 
 ## Complete engineering example
 
-One session performing the full documented workflow: inspect, read, replace with the exact-byte hash, compile, diagnose a failure, and recover.
+One session performing the full documented workflow: inspect, read, replace with the exact-byte hash, compile, diagnose a failure, correct it with the hash `update_pou` returned, and recompile successfully.
 
 ```python
 import anyio
@@ -83,8 +83,17 @@ async def main() -> None:
             )
             content_hash = read.structured_content["content_hash"]
 
-            replacement = "PROGRAM main\n    (* updated *)\nEND_PROGRAM\n"
-            await session.call_tool(
+            # This replacement uses a variable it never declares, so the
+            # compilation below fails on purpose to show the recovery path.
+            replacement = (
+                "PROGRAM main\n"
+                "VAR\n"
+                "    counter : INT := 0;\n"
+                "END_VAR\n"
+                "counter := sensorReading;\n"
+                "END_PROGRAM\n"
+            )
+            updated = await session.call_tool(
                 "update_pou",
                 {
                     "project_path": PROJECT,
@@ -93,6 +102,7 @@ async def main() -> None:
                     "expected_content_hash": content_hash,
                 },
             )
+            persisted_hash = updated.structured_content["content_hash"]
 
             compiled = await session.call_tool("compile_project", {"project_path": PROJECT})
             if not compiled.structured_content["success"]:
@@ -100,6 +110,24 @@ async def main() -> None:
                     "get_diagnostics", {"project_path": PROJECT}
                 )
                 print(diagnostics.structured_content["result"])
+
+                # Correct the POU. The expected hash is the one update_pou just
+                # returned for the bytes now on disk; this client wrote them, so
+                # no new read_pou is needed.
+                corrected = replacement.replace("counter := sensorReading;", "counter := counter + 1;")
+                updated = await session.call_tool(
+                    "update_pou",
+                    {
+                        "project_path": PROJECT,
+                        "pou_name": "main",
+                        "content": corrected,
+                        "expected_content_hash": persisted_hash,
+                    },
+                )
+                persisted_hash = updated.structured_content["content_hash"]
+
+                recovered = await session.call_tool("compile_project", {"project_path": PROJECT})
+                print("recovered:", recovered.structured_content["success"])  # True
 
 anyio.run(main)
 ```
